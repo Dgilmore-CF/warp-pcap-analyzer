@@ -1,726 +1,601 @@
-# WARP Diagnostics & PCAP Analyzer
+# WARP & PCAP Analyzer v2
 
-AI-powered analyzer for Cloudflare WARP diagnostic logs and packet captures using Cloudflare Workers AI with Meta's Llama 4 Scout 17B model.
+Professional network capture analysis with a Wireshark-style interface, multi-model AI diagnostics, and Cloudflare Access SSO — deployed as a single Cloudflare Worker.
 
 ---
 
 ## Table of Contents
 
 - [Features](#features)
-- [Quick Start](#quick-start)
 - [Architecture](#architecture)
-- [Setup & Deployment](#setup--deployment)
+- [Quick Start](#quick-start)
+- [Deployment](#deployment)
 - [Usage](#usage)
-- [Project Structure](#project-structure)
+- [API Reference](#api-reference)
 - [Configuration](#configuration)
-- [Testing & Monitoring](#testing--monitoring)
-- [Performance & Costs](#performance--costs)
+- [Project Structure](#project-structure)
+- [Cloudflare Access SSO](#cloudflare-access-sso)
+- [Export Formats](#export-formats)
+- [Performance & Limits](#performance--limits)
 - [Troubleshooting](#troubleshooting)
-- [Advanced Topics](#advanced-topics)
-- [Resources](#resources)
 
 ---
 
 ## Features
 
-### AI-Powered Analysis
-- **Model**: Meta's Llama 4 Scout 17B (131K context window)
-- Identifies root causes, not just symptoms
-- Severity classification (Critical/Warning/Info)
-- Actionable remediation steps
-- Event timeline generation
-- **Log evidence extraction**: Automatically finds and displays relevant log entries
-- Structured JSON output with collapsible UI sections
+### Wireshark-Style Packet Browser
+
+- **Three-pane layout**: Packet list, protocol detail tree, hex dump
+- **Protocol coloring**: TCP (blue), UDP (cyan), DNS (sky), TLS (purple), HTTP (green), ICMP (red), ARP (orange), WARP (CF orange)
+- **Display filter bar**: Supports `tcp`, `dns`, `ip.addr==192.168.1.1`, `port 443`, `tls.sni contains example.com`
+- **Protocol detail tree**: Expandable per-layer field inspection (Ethernet, IP, TCP options, DNS records, TLS handshake, HTTP headers)
+- **Hex dump viewer**: Offset + hex bytes + ASCII per 16-byte line
+- **Dark theme**: Professional dark UI designed for extended analysis sessions
+
+### Deep PCAP Protocol Decoder
+
+Full binary packet parsing — no external libraries, no server-side tcpdump:
+
+| Layer | Protocols |
+|-------|-----------|
+| **Data Link** | Ethernet II, 802.1Q VLAN |
+| **Network** | IPv4 (full header, flags, fragmentation), IPv6, ARP |
+| **Transport** | TCP (flags, options, MSS, window scale, timestamps, SACK), UDP, ICMP/ICMPv6 |
+| **Application** | DNS (queries, answers, all record types), TLS (version, SNI, ALPN, cipher suites), HTTP/1.1 (methods, headers, CF-RAY), DHCP (message types, options), SSH (banner detection) |
+
+Additional analysis:
+- **TCP flow reconstruction** with state tracking (SYN → ESTABLISHED → FIN/RST)
+- **Conversation tracking** with per-flow byte/packet counts and duration
+- **Protocol hierarchy** statistics
+- **Anomaly detection**: TCP resets, zero windows, low TTL, IP fragmentation, DNS errors, TLS alerts
+
+### Multi-Model AI Analysis
+
+Three Workers AI models, automatically selected based on task:
+
+| Model | Context | Use Case |
+|-------|---------|----------|
+| **Llama 4 Scout 17B** | 131K tokens | Deep PCAP analysis, WARP diagnostics (large log files) |
+| **Llama 3.3 70B Fast** | 24K tokens | Quick security assessments on smaller captures |
+| **DeepSeek R1 32B** | 80K tokens | Complex root-cause analysis |
+
+AI produces structured findings with:
+- Severity classification (Critical / Warning / Info)
+- Security risk assessment
+- Performance assessment
+- Root cause analysis with evidence (packet numbers, IPs, log lines)
+- Numbered remediation steps
+- Event timeline with log references
+
+### Statistics Dashboard
+
+- Protocol distribution with percentage bars
+- Top talkers by bytes
+- Port distribution
+- Packet size histogram
+- DNS query/response table
+- TLS connection inventory (SNI, version, ALPN)
+- Warning summary
+
+### Session Persistence
+
+Analysis results stored in Workers KV for 7 days:
+- Paginated packet storage (500 packets per KV key)
+- Per-user session ownership via Cloudflare Access identity
+- Session list on the upload screen — click to reopen previous analyses
+- Up to 50 sessions per user
+
+### Cloudflare Access SSO
+
+- JWT verification using the team's JWKS endpoint
+- User identity extraction for session ownership
+- Automatic dev-mode bypass when Access is not configured
+- Supports both `Cf-Access-Jwt-Assertion` header and `CF_Authorization` cookie
+
+### Multi-Format Export
+
+| Format | Description |
+|--------|-------------|
+| **JSON** | Full analysis data (packets, flows, stats, AI results) |
+| **CSV** | Packet table (No., Time, Source, Destination, Protocol, Length, Info, Ports, Flags) |
+| **HAR** | HTTP Archive format — HTTP requests/responses + TLS SNI entries |
+| **HTML** | Printable report with statistics, issues, recommendations, packet summary |
 
 ### File Support
+
 | Format | Support |
 |--------|---------|
-| WARP diag ZIP | ✅ Full extraction & parsing (40+ file types) |
-| PCAP/PCAPNG files | ✅ Binary parsing & metadata extraction |
-| Individual logs | ✅ Text parsing & categorization (`.log`, `.txt`, `.json`) |
+| WARP diag ZIP | Full extraction and parsing (40+ file types) |
+| PCAP (legacy) | Full binary decode with protocol analysis |
+| PCAPNG | Full binary decode (Enhanced Packet Blocks, Interface Description) |
+| Individual logs | Text parsing and categorisation (.log, .txt, .json) |
 
-### Diagnostic Capabilities
-- **Connection Issues**: Tunnel failures, authentication, network conflicts, firewall blocking
-- **DNS Problems**: Resolution timeouts, NXDOMAIN errors, configuration issues
-- **Performance**: Latency detection, packet loss, retransmissions
-- **Configuration**: Split tunnel errors, certificate validation, setting conflicts
-- **Security**: Certificate problems, TLS handshake failures, missing root CA
+---
 
-### Production Features
-- CORS-enabled for web clients
-- Comprehensive error handling with fallbacks
-- Token management and file prioritization
-- Rule-based fallback analysis if AI fails
-- Real-time web interface included
+## Architecture
+
+```
+                  Browser                     cURL / API Client
+                    │                               │
+                    ▼                               ▼
+          ┌─────────────────────────────────────────────┐
+          │          Cloudflare Access (SSO)             │
+          │   JWT verification, user identity extraction │
+          └─────────────────┬───────────────────────────┘
+                            ▼
+          ┌─────────────────────────────────────────────┐
+          │         warp-pcap-analyzer Worker            │
+          │                                             │
+          │  ┌──────────┐  ┌──────────┐  ┌──────────┐  │
+          │  │  Router   │→│ PCAP     │→│ AI Engine │  │
+          │  │  + Auth   │  │ Decoder  │  │ (3 models)│  │
+          │  └──────────┘  └──────────┘  └──────────┘  │
+          │        │              │             │        │
+          │        ▼              ▼             ▼        │
+          │  ┌──────────┐  ┌──────────┐  ┌──────────┐  │
+          │  │ Session   │  │ Export   │  │  WARP    │  │
+          │  │ Manager   │  │ Engine   │  │ Parsers  │  │
+          │  └──────────┘  └──────────┘  └──────────┘  │
+          └─────────┬───────────────────────────────────┘
+                    │
+          ┌─────────┴─────────┐
+          │   Workers KV      │     Workers AI
+          │   (Sessions)      │   (Llama 4 / 3.3 / DeepSeek)
+          └───────────────────┘
+```
+
+### Processing Pipeline
+
+```
+Upload → ZIP Extract (if .zip) → File Categorisation
+    │                                    │
+    ├── PCAP/PCAPNG files ──→ Binary Decode → Protocol Analysis → Flow Tracking → Statistics
+    │                                                                                │
+    ├── Log files ──────────→ Text Parse → Priority Sort → Key Info Extraction       │
+    │                                                                                │
+    └── Store in KV Session ←────────────────────────────────────────────────────────┘
+                │
+                ├── AI: PCAP Analysis (security, performance, protocol issues)
+                ├── AI: WARP Diagnostics (connectivity, DNS, config, certs)
+                └── Return results → Render in Wireshark-style UI
+```
 
 ---
 
 ## Quick Start
 
 ### Prerequisites
-- **Cloudflare Account** with Workers enabled
-- **GitHub Account** (for automatic deployment)
-- **Node.js** 18+ and npm
 
-### 1. Install Dependencies ⚡
+- **Cloudflare Account** with Workers and Workers AI enabled
+- **Node.js** 20+ and npm
+- **Wrangler** 4.x (installed automatically via npm)
+
+### Local Development
 
 ```bash
+# Clone the repository
+git clone https://github.com/Dgilmore-CF/warp-pcap-analyzer.git
+cd warp-pcap-analyzer
+
+# Install dependencies
 npm install
-```
 
-### 2. Test Locally 🧪
-
-```bash
+# Start local dev server
 npm run dev
 ```
 
-Your worker runs at **http://localhost:8787**
+Open **http://localhost:8787** in your browser. In local dev mode, Cloudflare Access auth is bypassed automatically.
 
-**Test with the web interface:**
-1. Open **http://localhost:8787** in your browser
-2. Upload a WARP diag ZIP or PCAP file
-3. See AI-powered analysis results!
-
-**Test with cURL:**
+### Test with cURL
 
 ```bash
-# Get API info (JSON)
+# API info
 curl http://localhost:8787
 
-# Upload a file
-curl -X POST http://localhost:8787 \
-  -F "file=@/path/to/warp-debugging-info.zip"
+# Upload a PCAP file
+curl -X POST http://localhost:8787/api/analyze \
+  -F "file=@capture.pcap"
+
+# Upload a WARP diagnostic bundle
+curl -X POST http://localhost:8787/api/analyze \
+  -F "file=@warp-debugging-info.zip"
 ```
 
-### 3. Deploy via GitHub 🚀
+---
 
-This worker automatically deploys when you push to GitHub:
+## Deployment
+
+### GitHub Actions (Automatic)
+
+Every push to `main` triggers deployment via `.github/workflows/deploy.yml`.
+
+**Required GitHub Secrets** (Settings > Secrets and variables > Actions):
+
+| Secret | Value |
+|--------|-------|
+| `CLOUDFLARE_API_TOKEN` | API token with "Edit Cloudflare Workers" permissions |
+| `CLOUDFLARE_ACCOUNT_ID` | Your Cloudflare Account ID (32-char hex) |
 
 ```bash
-# Initialize and push to GitHub
-git init
-git add .
-git commit -m "Initial commit: WARP diagnostics analyzer"
-git remote add origin https://github.com/YOUR_USERNAME/pcap-analyzer-worker.git
-git push -u origin main
+git push origin main
+# → GitHub Actions installs deps → deploys to Cloudflare Workers
 ```
 
-**Setup GitHub Secrets** (required):
-1. Get **Cloudflare API Token**: Dashboard → My Profile → API Tokens → Create Token (use "Edit Cloudflare Workers" template)
-2. Get **Cloudflare Account ID**: Dashboard → Workers & Pages (right sidebar)
-3. Add to GitHub: Repository Settings → Secrets and variables → Actions
-   - Add `CLOUDFLARE_API_TOKEN` (your token)
-   - Add `CLOUDFLARE_ACCOUNT_ID` (your account ID)
-
-**Monitor deployment:** Check the **Actions** tab in your GitHub repository
-
-Your worker URL: `https://pcap-analyzer-worker.YOUR-SUBDOMAIN.workers.dev`
-
----
-
-## Architecture
-
-### AI Model
-
-**Primary Model**: `@cf/meta/llama-4-scout-17b-16e-instruct`
-- Context: 131,000 tokens (handles large log files)
-- Multimodal with function calling
-- Cost: $0.27/M input tokens, $0.85/M output tokens
-
-**Alternative Models** (configurable):
-- `@cf/meta/llama-3.3-70b-instruct-fp8-fast` - Faster (24K context)
-- `@cf/deepseek-ai/deepseek-r1-distill-qwen-32b` - Strong reasoning (80K context)
-
-### File Processing Pipeline
-
-```
-Upload → ZIP Extract → Categorize → Priority Sort → 
-Parse Content → Extract Key Info → Build Context → 
-AI Analysis → Parse Response → Format Output
-```
-
-**Smart Prioritization:**
-- High-priority files (connection, DNS): Up to 10 files
-- Medium-priority files (network, config): Up to 5 files
-- Content truncation: 3000 chars per file
-
-**WARP File Categories:**
-- **Connection**: `daemon.log`, `connectivity.txt`, `warp-status.txt`, `boringtun.log`
-- **DNS**: `daemon_dns.log`, `dns-check.txt`, `dns_stats.log`, `dig.txt`
-- **Network**: `ifconfig.txt`, `netstat.txt`, `route.txt`, `traceroute.txt`
-- **Config**: `warp-settings.txt`, `warp-account.txt`, `mdm.plist`
-- **PCAP**: `capture-default.pcap`, `capture-tunnel.pcapng`
-
----
-
-## Setup & Deployment
-
-### Configuration
-
-The worker is pre-configured in `wrangler.jsonc`:
-
-```jsonc
-{
-  "name": "pcap-analyzer-worker",
-  "main": "src/index.js",
-  "compatibility_date": "2025-06-27",
-  "observability": { "enabled": true },
-  "ai": { "binding": "AI" }
-}
-```
-
-### GitHub Actions Deployment (Recommended)
-
-The workflow file `.github/workflows/deploy.yml` automatically:
-1. Checks out code
-2. Installs dependencies
-3. Runs tests
-4. Deploys to Cloudflare Workers
-
-**How to use:**
-1. Push code to `main` branch
-2. GitHub Actions triggers automatically
-3. View progress in Actions tab
-4. Worker deploys to Cloudflare
-
-**Manual trigger:** Actions tab → "Deploy to Cloudflare Workers" → Run workflow
-
-### Manual Deployment (Alternative)
+### Manual Deployment
 
 ```bash
 npx wrangler login
 npm run deploy
 ```
 
-### Custom Domain (Optional)
+### Custom Domain
 
-Add to `wrangler.jsonc`:
+The worker is configured to serve on `warp-analyzer.dtg-lab.net`. To change this, edit `wrangler.jsonc`:
 
 ```jsonc
-{
-  "routes": [{
-    "pattern": "warp-analyzer.yourdomain.com/*",
+"routes": [
+  {
+    "pattern": "your-domain.example.com",
     "custom_domain": true
-  }]
-}
+  }
+]
 ```
-
-Then configure in Cloudflare Dashboard.
 
 ---
 
 ## Usage
 
-### Web Interface (Browser)
+### Web Interface
 
-The easiest way to use the analyzer is through the web interface:
+1. Navigate to your worker URL in a browser
+2. Authenticate via Cloudflare Access SSO (if configured)
+3. Drop files onto the upload area (or click to browse)
+4. View results across six tabs:
 
-1. **Open in browser**: Navigate to your worker URL
-   - Local: `http://localhost:8787`
-   - Production: `https://your-worker.workers.dev`
+| Tab | Content |
+|-----|---------|
+| **Packets** | Wireshark-style three-pane browser with filter bar |
+| **Conversations** | TCP/UDP flow table sorted by bytes |
+| **Statistics** | Protocol distribution, top talkers, DNS, TLS, packet sizes |
+| **AI Analysis** | Combined PCAP + WARP findings with evidence and remediation |
+| **Timeline** | Chronological event visualization with severity markers |
+| **WARP Diagnostics** | File inventory and configuration review (when ZIP uploaded) |
 
-2. **Upload files**: Drag & drop or click to select files
-   - WARP diag ZIP files
-   - Individual PCAP/PCAPNG files
-   - Individual log files
+### Display Filters
 
-3. **View results**: Get AI-powered analysis with:
-   - Health status indicator
-   - Detected issues with severity
-   - Root cause analysis
-   - Remediation recommendations
-   - **Collapsible log evidence** - Actual log entries from uploaded files
-   - Full JSON response
+The packet filter bar supports these patterns:
 
-The interface includes two tabs:
-- **Upload & Analyze**: Interactive file upload and results
-- **API Documentation**: cURL and JavaScript examples
-
-Each detected issue includes:
-- **📋 View Log Evidence** - Collapsible section showing relevant log entries from your files
-- File name and line numbers for each log entry
-- Context lines around the issue for better understanding
-
-### API Endpoints
-
-#### GET `/`
-
-**Browser access** (Accept: text/html): Returns web interface
-
-**API access** (Accept: application/json): Returns API information
-
-**cURL Example:**
-```bash
-curl -H "Accept: application/json" http://localhost:8787
+```
+tcp                          # Show only TCP packets
+dns                          # Show only DNS packets
+udp                          # Show only UDP packets
+ip.addr==192.168.1.1         # Source or destination IP
+ip.dst==10.0.0.1             # Destination IP only
+port 443                     # Source or destination port
+tcp.port==80                 # TCP port
+tls.sni contains cloudflare  # TLS Server Name Indication
+http                         # Show HTTP packets
+arp                          # Show ARP packets
+rst                          # Show packets with RST flag
 ```
 
-**Response:**
-```json
+### Previous Sessions
+
+The upload screen shows your saved sessions (stored in KV for 7 days). Click any session to reload its full analysis without re-uploading.
+
+### Exporting
+
+Use the **Export** dropdown in the header bar to download analysis results:
+
+- **JSON**: Machine-readable full analysis data
+- **CSV**: Spreadsheet-compatible packet table
+- **HAR**: Import into browser DevTools or Charles Proxy
+- **HTML**: Printable report for sharing with stakeholders
+
+---
+
+## API Reference
+
+All `/api/*` endpoints require Cloudflare Access authentication (JWT in header or cookie).
+
+### `POST /api/analyze`
+
+Upload files for analysis.
+
+**Request**: `multipart/form-data` with one or more files.
+
+```bash
+curl -X POST https://warp-analyzer.dtg-lab.net/api/analyze \
+  -H "Cf-Access-Jwt-Assertion: $JWT" \
+  -F "file=@capture.pcap"
+```
+
+**Response**: JSON with session ID, decoded packets (first page), flows, statistics, and AI analysis.
+
+### `GET /api/sessions`
+
+List the authenticated user's saved sessions.
+
+### `GET /api/sessions/:id`
+
+Get session metadata (file info, packet count, timestamps).
+
+### `GET /api/sessions/:id/packets?page=0`
+
+Get paginated packet data (500 packets per page).
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `page` | `0` | Zero-based page number |
+
+### `GET /api/sessions/:id/flows`
+
+Get TCP/UDP conversation data.
+
+### `GET /api/sessions/:id/stats`
+
+Get protocol statistics, top talkers, DNS queries, TLS connections.
+
+### `GET /api/sessions/:id/ai`
+
+Get AI analysis results (PCAP security assessment + WARP diagnostics).
+
+### `GET /api/sessions/:id/warp`
+
+Get WARP diagnostic file data and configuration review.
+
+### `GET /api/sessions/:id/export/:format`
+
+Export session data. Format: `json`, `csv`, `har`, or `html`.
+
+Returns file download with appropriate `Content-Disposition` header.
+
+### `DELETE /api/sessions/:id`
+
+Delete a session and all associated KV data.
+
+### `GET /`
+
+Returns the web UI (HTML) for browser requests, or API info (JSON) for programmatic requests.
+
+---
+
+## Configuration
+
+### `wrangler.jsonc`
+
+```jsonc
 {
-  "name": "WARP Diagnostics & PCAP Analyzer",
-  "version": "1.0.0",
-  "model": "Llama 4 Scout 17B",
-  "endpoints": {
-    "ui": "GET / - Web interface (browser)",
-    "api_info": "GET / - API info (Accept: application/json)",
-    "analyze": "POST / - Upload files"
-  }
+  "name": "warp-pcap-analyzer",
+  "main": "src/index.js",
+  "compatibility_date": "2025-01-01",
+  "ai": { "binding": "AI" },
+  "kv_namespaces": [
+    { "binding": "SESSIONS", "id": "your-kv-namespace-id" }
+  ],
+  "vars": {
+    "CF_ACCESS_TEAM_DOMAIN": "your-team.cloudflareaccess.com",
+    "CF_ACCESS_AUD": "your-application-audience-tag"
+  },
+  "placement": { "mode": "smart" }
 }
 ```
 
-#### POST `/`
-Upload WARP diagnostic files for analysis (both API and web interface use this).
+### Environment Variables
 
-**Request:**
-- Method: `POST`
-- Content-Type: `multipart/form-data`
-- Body: One or more files (ZIP, PCAP, or log files)
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `CF_ACCESS_TEAM_DOMAIN` | No | Cloudflare Access team domain. Empty = auth bypassed (dev mode). |
+| `CF_ACCESS_AUD` | No | Access Application Audience tag. Empty = auth bypassed (dev mode). |
 
-**cURL Examples:**
+### Workers KV
+
+Create the namespace:
 
 ```bash
-# Upload warp-diag ZIP
-curl -X POST https://your-worker.workers.dev \
-  -F "file=@warp-debugging-info-2024-12-05-143000.zip"
-
-# Upload multiple PCAP/PCAPNG files
-curl -X POST https://your-worker.workers.dev \
-  -F "file1=@capture-default.pcap" \
-  -F "file2=@capture-tunnel.pcapng"
-
-# Upload individual logs
-curl -X POST https://your-worker.workers.dev \
-  -F "daemon=@daemon.log" \
-  -F "status=@warp-status.txt"
+npx wrangler kv namespace create SESSIONS
 ```
 
-**JavaScript Example:**
+Paste the returned ID into `wrangler.jsonc`.
 
-```javascript
-const formData = new FormData();
-formData.append('file', file); // File object from input
+### Smart Placement
 
-const response = await fetch('https://your-worker.workers.dev', {
-  method: 'POST',
-  body: formData,
-});
-
-const analysis = await response.json();
-console.log(analysis);
-```
-
-### Response Format
-
-```json
-{
-  "timestamp": "2024-12-05T20:30:00.000Z",
-  "filesProcessed": {
-    "logFiles": 42,
-    "pcapFiles": 2,
-    "total": 44
-  },
-  "filesAnalyzed": 15,
-  "pcapMetadata": [{
-    "filename": "capture-default.pcap",
-    "format": "PCAP",
-    "version": "2.4",
-    "packetCount": 1523,
-    "fileSize": 245632
-  }],
-  "analysis": {
-    "summary": "WARP client experiencing DNS resolution failures...",
-    "health_status": "Degraded",
-    "issues": [{
-      "severity": "Critical",
-      "category": "DNS",
-      "title": "DNS Resolution Timeout",
-      "description": "Multiple DNS queries timing out...",
-      "root_cause": "DNS resolver not responding properly",
-      "remediation": "1. Check DNS settings in WARP...",
-      "affected_files": ["daemon_dns.log", "dns-check.txt"],
-      "timestamps": ["2024-12-05T14:25:32"]
-    }],
-    "timeline": [{
-      "timestamp": "2024-12-05T14:25:30",
-      "event": "WARP tunnel established",
-      "severity": "Info"
-    }],
-    "recommendations": [
-      "Verify DNS configuration in WARP settings",
-      "Check for firewall rules blocking DNS traffic"
-    ]
-  },
-  "modelUsed": "@cf/meta/llama-4-scout-17b-16e-instruct",
-  "success": true
-}
-```
-
-**Severity Levels:**
-- **Critical**: Complete loss of functionality
-- **Warning**: Degraded functionality, core features still work
-- **Info**: Informational findings, no immediate action required
+Enabled by default. Routes requests to the nearest Cloudflare data centre with GPU capacity for AI inference, reducing latency for Workers AI calls.
 
 ---
 
 ## Project Structure
 
 ```
-pcap-analyzer-worker/
+warp-pcap-analyzer/
 ├── .github/
 │   └── workflows/
-│       └── deploy.yml           # GitHub Actions deployment
+│       └── deploy.yml             # GitHub Actions → Cloudflare Workers
 ├── src/
-│   ├── index.js                 # Main Worker (240+ lines)
-│   ├── parsers.js               # File parsing (184 lines)
-│   ├── ai-analyzer.js           # AI integration (287 lines)
-│   └── ui.js                    # Web interface (embedded)
+│   ├── index.js                   # Main Worker: routing, auth, analysis pipeline
+│   ├── pcap-decoder.js            # Full PCAP/PCAPNG binary decoder (1,400+ lines)
+│   ├── ai-analyzer.js             # Multi-model AI engine with structured prompts
+│   ├── parsers.js                 # ZIP extraction, text parsing, WARP file categorisation
+│   ├── auth.js                    # Cloudflare Access JWT verification (Web Crypto)
+│   ├── session.js                 # KV-based session persistence (chunked storage)
+│   ├── export.js                  # Multi-format export (JSON, CSV, HAR, HTML)
+│   └── ui.js                      # Embedded Wireshark-style dark-theme SPA
 ├── test/
-│   └── index.spec.js            # Unit tests
-├── examples/
-│   └── test-upload.html         # Standalone web client (reference)
-├── wrangler.jsonc               # Worker configuration
-├── package.json                 # Dependencies
-└── README.md                    # This file
+│   └── index.spec.js              # Vitest unit tests (Workers pool)
+├── wrangler.jsonc                 # Worker configuration (AI, KV, Access, routes)
+├── package.json
+└── vitest.config.js
 ```
 
-### Key Components
+### Key Modules
 
-**`src/index.js`** - Main Worker
-- Request handling and routing (GET/POST/OPTIONS)
-- Browser vs API detection (Accept header)
-- File upload processing with multipart/form-data
-- Priority-based file selection
-- Response formatting and error handling
-- CORS support
+**`pcap-decoder.js`** (1,415 lines) — The core decoder. Reads PCAP and PCAPNG binary formats, decodes every packet through Layer 2–7, builds flow tables and statistics. No external dependencies.
 
-**`src/ui.js`** - Web Interface
-- Embedded HTML/CSS/JavaScript
-- Drag & drop file upload
-- Real-time analysis results display
-- Two-tab interface (Upload & API docs)
-- Auto-detects worker URL
+**`ai-analyzer.js`** — Routes analysis to the best Workers AI model based on task type and input size. Builds optimised context from decoded packets, flows, and statistics. Includes evidence enrichment that maps AI findings back to specific log lines and packet numbers.
 
-**`src/parsers.js`** - File Parsing
-- `extractZipFiles()` - ZIP extraction using fflate
-- `parseTextFile()` - Text decoding (UTF-8)
-- `parsePcapBasic()` - PCAP metadata extraction
-- `categorizeWarpFile()` - File type identification
-- `extractKeyInfo()` - Structured data extraction
+**`session.js`** — Stores decoded packets in KV chunks of 500. Manages per-user session lists with 7-day TTL. Supports paginated retrieval for large captures.
 
-**`src/ai-analyzer.js`** - AI Analysis
-- `analyzeWarpDiagnostics()` - Main AI analysis
-- `buildAnalysisContext()` - Context preparation with token limits
-- `parseAIResponse()` - JSON extraction from AI
-- `generateFallbackAnalysis()` - Rule-based backup
-- `analyzePcapWithAI()` - PCAP-specific analysis
+**`auth.js`** — Fetches JWKS from the Access team domain, verifies RS256 JWT signatures using the Web Crypto API, extracts user email for session scoping. Caches JWKS for 10 minutes.
+
+**`ui.js`** — Complete single-page application embedded as an HTML string. Three-pane Wireshark layout, virtual packet list, expandable protocol tree, hex dump, statistics charts, AI analysis cards, timeline, session management, and export controls.
 
 ---
 
-## Configuration
+## Cloudflare Access SSO
 
-### Environment Variables (Optional)
+### Setup
 
-Add to `wrangler.jsonc`:
+1. Go to **Cloudflare Zero Trust Dashboard** > **Access** > **Applications**
+2. Create a **Self-hosted Application** for `warp-analyzer.dtg-lab.net`
+3. Configure your Identity Provider (Okta, Azure AD, Google, GitHub, etc.)
+4. Set access policies (e.g., allow your team's email domain)
+5. Copy the **Application Audience (AUD)** tag from the application settings
+6. Set in `wrangler.jsonc`:
+   ```jsonc
+   "vars": {
+     "CF_ACCESS_TEAM_DOMAIN": "your-team.cloudflareaccess.com",
+     "CF_ACCESS_AUD": "your-aud-tag"
+   }
+   ```
+7. Redeploy: `npm run deploy`
 
-```jsonc
+### How It Works
+
+1. Browser request hits Cloudflare's edge
+2. Access intercepts and redirects to SSO login (if not authenticated)
+3. After authentication, Access injects `Cf-Access-Jwt-Assertion` header
+4. The Worker verifies the JWT signature against the team's JWKS
+5. User email is extracted and used for session ownership
+6. API returns `401` with error message if verification fails
+
+### Dev Mode
+
+When `CF_ACCESS_TEAM_DOMAIN` and `CF_ACCESS_AUD` are both empty strings, the Worker skips JWT verification and uses a placeholder `dev@localhost` identity. This is the default for local development with `npm run dev`.
+
+---
+
+## Export Formats
+
+### JSON
+
+Complete analysis data suitable for programmatic consumption:
+
+```json
 {
-  "vars": {
-    "ENVIRONMENT": "production",
-    "MAX_FILE_SIZE": "10485760"
-  }
+  "exportedAt": "2025-01-01T00:00:00Z",
+  "session": { "id": "...", "fileName": "capture.pcap" },
+  "statistics": { "totalPackets": 1523, "protocols": { "TCP": 1200 } },
+  "flows": { "192.168.1.5:443-10.0.0.1:55672-TCP": { ... } },
+  "aiAnalysis": { "health_status": "Degraded", "issues": [...] },
+  "packets": [{ "number": 1, "protocol": "DNS", "info": "..." }]
 }
 ```
 
-### Model Selection
+### CSV
 
-To change models, edit `src/ai-analyzer.js`:
+One row per packet, importable into Excel, Google Sheets, or pandas:
 
-```javascript
-const MODELS = {
-  LLAMA4_SCOUT: '@cf/meta/llama-4-scout-17b-16e-instruct',  // Default
-  LLAMA33_FAST: '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
-  DEEPSEEK_R1: '@cf/deepseek-ai/deepseek-r1-distill-qwen-32b',
-};
+```
+No.,Time,Source,Destination,Protocol,Length,Info,Src Port,Dst Port,TCP Flags,Flow ID,Warnings
+1,0.000000,192.168.1.5,1.1.1.1,DNS,75,DNS Query A example.com,54321,53,,192.168.1.5:54321-1.1.1.1:53-UDP,
 ```
 
-### Token Optimization
+### HAR
 
-Adjust content limits in `src/ai-analyzer.js`:
+HTTP Archive format containing HTTP requests/responses and TLS ClientHello entries (with SNI). Importable into browser DevTools, Charles Proxy, or Fiddler.
 
-```javascript
-const maxLength = 3000; // Characters per file
-// Reduce to 2000 to lower costs
-```
+### HTML
+
+Printable report with:
+- Health status badge
+- Capture statistics (packets, bytes, duration, protocols)
+- Protocol distribution table
+- Detected issues with severity, root cause, and remediation
+- Top conversations
+- First 100 packets in tabular format
 
 ---
 
-## Testing & Monitoring
-
-### Run Tests
-
-```bash
-npm test
-```
-
-**Tests include:**
-- ✅ GET request returns API info
-- ✅ OPTIONS request handles CORS
-- ✅ POST validation (content-type)
-- ✅ AI binding validation
-- ✅ Integration tests
-
-### View Real-time Logs
-
-```bash
-npx wrangler tail
-```
-
-### Cloudflare Dashboard
-
-Monitor your worker:
-- **Analytics**: Request counts, error rates
-- **AI Usage**: Token consumption, model performance
-- **Performance**: Latency, CPU time
-- **Logs**: Error traces and debug info
-
-**URL**: `https://dash.cloudflare.com/<account-id>/workers/services/view/pcap-analyzer-worker`
-
-### GitHub Actions Monitoring
-
-- **Actions Tab**: View deployment history
-- **Workflow Runs**: See logs for each step
-- **Notifications**: Get alerts on deployment failures
-
----
-
-## Performance & Costs
+## Performance & Limits
 
 ### Typical Analysis Metrics
 
-| Metric | Value |
-|--------|-------|
-| File extraction | 100-500ms |
-| AI analysis | 2-5 seconds |
-| **Total time** | **3-6 seconds** |
-| Input tokens | 50K-80K |
-| Output tokens | 2K-4K |
-| **Cost per analysis** | **$0.015-$0.025** |
-
-### Workers AI Pricing
-
-**Free Plan:**
-- 10,000 neurons per day
-- ~14 full warp-diag analyses per day
-
-**Paid Plan:**
-- $0.011 per 1,000 neurons
-- Pay-as-you-go
-
-**Neuron Calculation (Llama 4 Scout):**
-- 1 input token ≈ 10 neurons
-- 1 output token ≈ 100 neurons
-- Example: 50K input + 2K output = 700K neurons = $7.70
+| Metric | Small Capture (<1K pkts) | Medium (1K–10K pkts) | Large (10K+ pkts) |
+|--------|--------------------------|----------------------|--------------------|
+| PCAP decode | 50–200ms | 200ms–1s | 1–5s |
+| AI analysis | 2–5s | 3–8s | 5–15s |
+| **Total time** | **3–6s** | **5–10s** | **8–20s** |
 
 ### Workers Limits
 
-- **Request timeout**: 30 seconds (CPU time)
-- **Request size**: 100 MB
-- **Memory**: 128 MB
+| Resource | Limit |
+|----------|-------|
+| Request size | 100 MB |
+| Worker memory | 128 MB |
+| CPU time (paid) | 30 seconds |
+| KV value size | 25 MB per key |
+| KV write latency | Eventually consistent (up to 60s globally) |
 
-### Optimization Tips
+### Large File Handling
 
-1. **Reduce token usage**: Lower `maxLength` in `ai-analyzer.js`
-2. **Use faster model**: Switch to Llama 3.3 Fast
-3. **Implement caching**: Add Workers KV for common patterns
-4. **Batch processing**: Process multiple files together
+Files over 5 MB trigger a warning banner in the UI. The decoder limits analysis to 10,000 packets by default (50,000 for large files). The full packet count is reported and remaining packets are noted but not decoded, to stay within Worker CPU limits.
+
+### Workers AI Pricing
+
+| Plan | Allowance |
+|------|-----------|
+| **Free** | 10,000 neurons/day (~14 full analyses) |
+| **Paid** | $0.011 per 1,000 neurons |
+
+Typical analysis: 50K input tokens + 3K output tokens = ~800K neurons.
 
 ---
 
 ## Troubleshooting
 
-### Deployment Issues
+### Deployment
 
-**"Authentication error" in GitHub Actions**
-- **Cause**: Invalid API token or wrong permissions
-- **Fix**: Create new token with "Edit Cloudflare Workers" permissions, update `CLOUDFLARE_API_TOKEN` secret
+**"CLOUDFLARE_API_TOKEN not set"** in GitHub Actions
+- Go to repo Settings > Secrets and variables > Actions
+- Add `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`
 
-**"Account not found"**
-- **Cause**: Incorrect Account ID
-- **Fix**: Verify Account ID in Cloudflare Dashboard, update `CLOUDFLARE_ACCOUNT_ID` secret
+**"KV namespace not found"**
+- Run `npx wrangler kv namespace create SESSIONS`
+- Update the `id` in `wrangler.jsonc`
 
-**"npm test" step fails**
-- **Fix**: Run `npm test` locally, fix failing tests, commit and push
+### Runtime
 
-**Workflow doesn't trigger**
-- **Fix**: Ensure `.github/workflows/deploy.yml` exists and is committed
-- Check Settings → Actions → General → Allow all actions
+**"Authentication required" (401)**
+- Cloudflare Access is enabled but no valid JWT was provided
+- Open the URL in a browser to trigger SSO login
+- For API access, include the `Cf-Access-Jwt-Assertion` header
 
-### Runtime Issues
+**"AI binding not configured" (500)**
+- Ensure `wrangler.jsonc` has `"ai": { "binding": "AI" }`
+- Redeploy with `npm run deploy`
 
-**"AI binding not configured"**
-- **Fix**: Ensure `wrangler.jsonc` has AI binding, redeploy with `npm run deploy`
+**"Session storage not configured" (500)**
+- KV namespace not bound. Run `npx wrangler kv namespace create SESSIONS` and update `wrangler.jsonc`
 
-**"Content-Type must be multipart/form-data"**
-- **Fix**: Use `multipart/form-data` encoding for file uploads
+**AI analysis returns fallback results**
+- Workers AI may be temporarily unavailable or rate-limited
+- The fallback uses rule-based pattern matching (TCP resets, DNS errors, zero windows)
+- Results are marked with a "Rule-based fallback" note
 
-**"No valid WARP diag or PCAP files found"**
-- **Fix**: Verify file format (ZIP, PCAP/PCAPNG, or text logs), check ZIP contents
+**Large PCAP files time out**
+- Worker CPU limit is 30s on paid plans
+- Reduce capture size or split into smaller files
+- The decoder automatically limits packet count for large files
 
-**"Request timeout" errors**
-- **Cause**: Large files or slow AI inference
-- **Fix**: Upload smaller files, enable Smart Placement, or use Durable Objects
+### Local Development
 
-**"Connection refused" (local development)**
-- **Fix**: Ensure `npm run dev` is running
+**"Cannot find module" errors**
+- Run `npm install` to install dependencies
+- Ensure you're using Node.js 20+
 
-**AI Analysis timeout**
-- **Cause**: Large log files exceeding processing limits
-- **Fix**: Upload individual high-priority files instead of full ZIP
-
-**High latency**
-- **Fix**: Enable Smart Placement in `wrangler.jsonc`:
-  ```jsonc
-  { "placement": { "mode": "smart" } }
-  ```
-
-**Out of memory**
-- **Cause**: Very large ZIP files
-- **Fix**: Add file size validation, implement streaming, process in batches
-
----
-
-## Advanced Topics
-
-### Custom Caching
-
-Add Workers KV for caching results:
-
-```jsonc
-// wrangler.jsonc
-{
-  "kv_namespaces": [{
-    "binding": "CACHE",
-    "id": "your-kv-namespace-id"
-  }]
-}
-```
-
-### Rollback Deployments
-
-```bash
-# List deployments
-npx wrangler deployments list
-
-# Rollback to previous
-npx wrangler rollback --message "Rollback to previous version"
-```
-
-### Scaling for High Traffic
-
-1. **Rate Limiting**: Use Cloudflare Rate Limiting rules
-2. **Queuing**: Implement Cloudflare Queues for async processing
-3. **Caching**: Cache common analysis results
-4. **Batch API**: Process multiple requests together
-
-### Branch Protection
-
-Recommended GitHub settings:
-1. Settings → Branches → Add rule for `main`
-2. Enable:
-   - Require pull request before merging
-   - Require status checks to pass
-   - Require branches to be up to date
-
-### Security Best Practices
-
-✅ Never commit secrets to repository  
-✅ Use GitHub Secrets for sensitive data  
-✅ Rotate API tokens periodically  
-✅ Use minimal permissions for tokens  
-✅ Enable branch protection rules  
-
----
-
-## Resources
-
-### Official Documentation
-- [Cloudflare Workers AI](https://developers.cloudflare.com/workers-ai/)
-- [Llama 4 Scout Model](https://developers.cloudflare.com/workers-ai/models/llama-4-scout-17b-16e-instruct)
-- [WARP Diagnostic Logs](https://developers.cloudflare.com/cloudflare-one/connections/connect-devices/warp/troubleshooting/warp-logs/)
-- [Workers AI Pricing](https://developers.cloudflare.com/workers-ai/platform/pricing/)
-- [GitHub Actions](https://docs.github.com/en/actions)
-- [Wrangler Action](https://github.com/cloudflare/wrangler-action)
-
-### Community
-- [Cloudflare Discord](https://discord.gg/cloudflaredev)
-- [Support Portal](https://support.cloudflare.com/)
-
-### Project Files
-- **Web Interface**: `src/ui.js` - Embedded HTML interface (served at GET /)
-- **Example HTML**: `examples/test-upload.html` - Standalone version for reference
-- **Workflow**: `.github/workflows/deploy.yml` - Automatic deployment configuration
-- **Tests**: `test/index.spec.js` - Unit and integration tests
-
----
-
-## Production Checklist
-
-- [ ] Push code to GitHub: `git push origin main`
-- [ ] Verify GitHub Actions deployment succeeds
-- [ ] Test endpoint with real WARP diag files
-- [ ] Set up monitoring alerts in Cloudflare Dashboard
-- [ ] Configure custom domain (optional)
-- [ ] Enable Workers Analytics
-- [ ] Review and adjust rate limits
-- [ ] Set up error tracking (optional)
-- [ ] Configure branch protection rules
-
----
-
-## Summary
-
-### What You Get
-
-✅ **AI-Powered Analysis**: Llama 4 Scout 17B for intelligent diagnostics  
-✅ **Multi-Format Support**: ZIP, PCAP, and 40+ log file types  
-✅ **Automated Deployment**: Push to GitHub, automatic deployment  
-✅ **Production-Ready**: Error handling, fallbacks, CORS, monitoring  
-✅ **Web Interface**: Beautiful drag & drop interface included  
-✅ **Comprehensive Output**: Root causes, remediation steps, timelines  
-✅ **Log Evidence Extraction**: Automatically extracts and displays relevant log entries for each issue
-
-### Quick Reference
-
-**Start development:**
-```bash
-npm install && npm run dev
-# Then open http://localhost:8787 in your browser
-```
-
-**Deploy:**
-```bash
-git push origin main
-```
-
-**Test web interface:**
-```
-Open http://localhost:8787 in browser
-```
-
-**Test API:**
-```bash
-curl -X POST http://localhost:8787 -F "file=@warp-diag.zip"
-```
-
-**Run tests:**
-```bash
-npm test
-```
-
-**Monitor:**
-```bash
-npx wrangler tail
-```
+**Auth issues in local dev**
+- Leave `CF_ACCESS_TEAM_DOMAIN` and `CF_ACCESS_AUD` empty in `wrangler.jsonc`
+- Auth is automatically bypassed in dev mode
 
 ---
 
@@ -730,4 +605,4 @@ MIT
 
 ---
 
-**Built with ❤️ using Cloudflare Workers AI**
+Built with Cloudflare Workers AI, Workers KV, and Cloudflare Access.
