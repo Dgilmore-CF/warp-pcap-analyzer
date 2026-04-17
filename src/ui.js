@@ -1961,7 +1961,7 @@ if(visible>MAX_RENDER){html+='<div class="log-line" style="color:var(--text3);fo
 
 let displayed=esc(line);
 if(filter&&!isRegex){
-const re=new RegExp('('+filter.replace(/[.*+?^\${}()|[\\]\\\\]/g,'\\\\$&')+')','gi');
+const re=new RegExp('('+regexEscape(filter)+')','gi');
 displayed=displayed.replace(re,'<span class="hl">$1</span>');
 }
 html+='<div class="log-line '+sev+(filter?' matched':'')+'"><span class="ln-num">'+(i+1)+'</span><span class="ln-txt">'+displayed+'</span></div>';
@@ -2390,6 +2390,9 @@ $('statusSession').textContent=data.sessionId?data.sessionId.substring(0,20):'';
 
 // ── Helpers ──────────────────────────────────────────────────────────
 function esc(s){if(!s)return'';return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+// Regex-escape a user-supplied string for use in new RegExp(...).
+// Avoids using a regex literal (which has template-string escape issues in our embedded JS).
+function regexEscape(s){const specials='.*+?^()|[]\\\\';let out='';for(const c of String(s)){if(specials.indexOf(c)!==-1)out+='\\\\';out+=c}return out.split('{').join('\\\\{').split('}').join('\\\\}').split('$').join('\\\\$')}
 function fmtBytes(b){if(!b)return'0 B';const k=1024,s=['B','KB','MB','GB'];const i=Math.floor(Math.log(b)/Math.log(k));return(b/Math.pow(k,i)).toFixed(1)+' '+s[i]}
 function formatRemed(text){if(!text)return'';const s=String(text);const steps=s.split(/(?:^|\\s)(\\d+)\\.\\s+/).filter(Boolean);if(steps.length>2){let ol='<ol>';for(let i=0;i<steps.length;i+=2){const t=steps[i+1]||steps[i];if(t&&!/^\\d+$/.test(t.trim()))ol+='<li>'+esc(t.trim())+'</li>'}return ol+'</ol>'}return'<p style="margin-top:6px">'+esc(s)+'</p>'}
 
