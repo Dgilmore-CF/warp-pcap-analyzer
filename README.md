@@ -364,6 +364,8 @@ Returns the web UI (HTML) for browser requests, or API info (JSON) for programma
 
 ### `wrangler.jsonc`
 
+Committed configuration — no secrets:
+
 ```jsonc
 {
   "name": "warp-pcap-analyzer",
@@ -373,20 +375,32 @@ Returns the web UI (HTML) for browser requests, or API info (JSON) for programma
   "kv_namespaces": [
     { "binding": "SESSIONS", "id": "your-kv-namespace-id" }
   ],
-  "vars": {
-    "CF_ACCESS_TEAM_DOMAIN": "your-team.cloudflareaccess.com",
-    "CF_ACCESS_AUD": "your-application-audience-tag"
-  },
+  "routes": [
+    { "pattern": "your-domain.example.com", "custom_domain": true }
+  ],
   "placement": { "mode": "smart" }
 }
 ```
 
-### Environment Variables
+### Secrets (encrypted, not in source)
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `CF_ACCESS_TEAM_DOMAIN` | No | Cloudflare Access team domain. Empty = auth bypassed (dev mode). |
-| `CF_ACCESS_AUD` | No | Access Application Audience tag. Empty = auth bypassed (dev mode). |
+Sensitive configuration is stored as Worker secrets, set via `wrangler secret put`:
+
+```bash
+npx wrangler secret put CF_ACCESS_TEAM_DOMAIN   # e.g. yourteam.cloudflareaccess.com
+npx wrangler secret put CF_ACCESS_AUD           # Application AUD tag from Access
+```
+
+| Secret | Required | Description |
+|--------|----------|-------------|
+| `CF_ACCESS_TEAM_DOMAIN` | No | Cloudflare Access team domain. Missing = auth bypassed (dev mode). |
+| `CF_ACCESS_AUD` | No | Access Application Audience tag. Missing = auth bypassed (dev mode). |
+
+List existing secrets:
+
+```bash
+npx wrangler secret list
+```
 
 ### Workers KV
 
@@ -396,7 +410,7 @@ Create the namespace:
 npx wrangler kv namespace create SESSIONS
 ```
 
-Paste the returned ID into `wrangler.jsonc`.
+Paste the returned ID into `wrangler.jsonc`. **The KV namespace ID is a public identifier, not a credential** — it's safe to commit.
 
 ### Smart Placement
 
@@ -446,18 +460,19 @@ warp-pcap-analyzer/
 ### Setup
 
 1. Go to **Cloudflare Zero Trust Dashboard** > **Access** > **Applications**
-2. Create a **Self-hosted Application** for `warp-analyzer.dtg-lab.net`
+2. Create a **Self-hosted Application** for your worker domain
 3. Configure your Identity Provider (Okta, Azure AD, Google, GitHub, etc.)
 4. Set access policies (e.g., allow your team's email domain)
 5. Copy the **Application Audience (AUD)** tag from the application settings
-6. Set in `wrangler.jsonc`:
-   ```jsonc
-   "vars": {
-     "CF_ACCESS_TEAM_DOMAIN": "your-team.cloudflareaccess.com",
-     "CF_ACCESS_AUD": "your-aud-tag"
-   }
+6. Store the values as Worker secrets (encrypted, not in source):
+   ```bash
+   npx wrangler secret put CF_ACCESS_TEAM_DOMAIN
+   # Enter: your-team.cloudflareaccess.com
+
+   npx wrangler secret put CF_ACCESS_AUD
+   # Enter: your-aud-tag
    ```
-7. Redeploy: `npm run deploy`
+7. No redeploy needed — secrets take effect immediately.
 
 ### How It Works
 
@@ -470,7 +485,7 @@ warp-pcap-analyzer/
 
 ### Dev Mode
 
-When `CF_ACCESS_TEAM_DOMAIN` and `CF_ACCESS_AUD` are both empty strings, the Worker skips JWT verification and uses a placeholder `dev@localhost` identity. This is the default for local development with `npm run dev`.
+When the `CF_ACCESS_TEAM_DOMAIN` and `CF_ACCESS_AUD` secrets are not set, the Worker skips JWT verification and uses a placeholder `dev@localhost` identity. This is the default for local development with `npm run dev`.
 
 ---
 
@@ -594,8 +609,29 @@ Typical analysis: 50K input tokens + 3K output tokens = ~800K neurons.
 - Ensure you're using Node.js 20+
 
 **Auth issues in local dev**
-- Leave `CF_ACCESS_TEAM_DOMAIN` and `CF_ACCESS_AUD` empty in `wrangler.jsonc`
+- Don't set the `CF_ACCESS_TEAM_DOMAIN` / `CF_ACCESS_AUD` secrets when running locally
+- Local dev uses `wrangler dev` which doesn't access production secrets
 - Auth is automatically bypassed in dev mode
+
+---
+
+## Security Model
+
+What lives where:
+
+| Value | Location | Sensitive? |
+|-------|----------|------------|
+| `CLOUDFLARE_API_TOKEN` | GitHub repository secret | **Yes — credential** |
+| `CLOUDFLARE_ACCOUNT_ID` | GitHub repository secret | Semi-sensitive |
+| `CF_ACCESS_TEAM_DOMAIN` | Worker secret (encrypted) | Semi-sensitive |
+| `CF_ACCESS_AUD` | Worker secret (encrypted) | Semi-sensitive |
+| KV namespace ID | `wrangler.jsonc` (public) | **No — identifier only** |
+| Custom domain route | `wrangler.jsonc` (public) | No — DNS public |
+
+Nothing in the repository is a credential. Deployment credentials are scoped
+GitHub secrets. Runtime configuration is stored as encrypted Worker secrets.
+Public identifiers (KV IDs, routes, domains) appear in `wrangler.jsonc` but
+cannot be used without the corresponding credentials.
 
 ---
 

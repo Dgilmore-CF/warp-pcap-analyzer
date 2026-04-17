@@ -1,6 +1,18 @@
 /**
  * WARP & PCAP Analyzer v2 — Wrangler Configuration
  * https://developers.cloudflare.com/workers/wrangler/configuration/
+ *
+ * SECURITY NOTE — What's in this file:
+ *   • KV namespace IDs and custom domain routes are deployment identifiers.
+ *     They are NOT credentials. They appear in public Cloudflare examples.
+ *   • Sensitive config (CF_ACCESS_TEAM_DOMAIN, CF_ACCESS_AUD) is stored as
+ *     encrypted Worker secrets, NOT as vars in this file. Set them via:
+ *
+ *       npx wrangler secret put CF_ACCESS_TEAM_DOMAIN
+ *       npx wrangler secret put CF_ACCESS_AUD
+ *
+ *   • Deployment credentials (CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID)
+ *     live in GitHub repository secrets and never touch this file.
  */
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
@@ -16,8 +28,7 @@
 	},
 
 	/**
-	 * Workers AI Binding
-	 * Provides access to Llama 4 Scout, Llama 3.3, DeepSeek R1
+	 * Workers AI Binding — Llama 4 Scout, Llama 3.3, DeepSeek R1.
 	 */
 	"ai": {
 		"binding": "AI"
@@ -25,10 +36,10 @@
 
 	/**
 	 * Workers KV — Session Storage
-	 * Stores analysis sessions, decoded packets, AI results.
-	 * Create the namespace with:
-	 *   npx wrangler kv namespace create SESSIONS
-	 * Then paste the ID below.
+	 * The `id` below is a public identifier (not a credential). To deploy
+	 * this project to a different Cloudflare account, create your own
+	 * namespace with `npx wrangler kv namespace create SESSIONS` and
+	 * replace the ID here.
 	 */
 	"kv_namespaces": [
 		{
@@ -38,19 +49,8 @@
 	],
 
 	/**
-	 * Environment Variables
-	 * CF_ACCESS_TEAM_DOMAIN: Your Cloudflare Access team domain (e.g., "myteam" or "myteam.cloudflareaccess.com")
-	 * CF_ACCESS_AUD: Application Audience (AUD) tag from Access Application config
-	 *
-	 * If both are unset, auth is bypassed (dev mode).
-	 */
-	"vars": {
-		"CF_ACCESS_TEAM_DOMAIN": "dtg-lab.cloudflareaccess.com",
-		"CF_ACCESS_AUD": "384f757c0589383e4c7c601be01b3903b599d004a67220edb968fb13cd79475e"
-	},
-
-	/**
-	 * Custom Domain Configuration
+	 * Custom Domain — public DNS record, not sensitive.
+	 * For a new deployment, change this to your own hostname.
 	 */
 	"routes": [
 		{
@@ -67,7 +67,14 @@
 	}
 
 	/**
-	 * Limits — increase for large PCAP processing
-	 * "limits": { "cpu_ms": 30000 }
+	 * CONFIGURATION NOT IN THIS FILE (set via `wrangler secret put`):
+	 *   CF_ACCESS_TEAM_DOMAIN  — your Cloudflare Access team domain
+	 *   CF_ACCESS_AUD          — Application Audience tag from Access app config
+	 *
+	 * When both secrets are missing, the Worker runs in dev-bypass mode
+	 * (see src/auth.js) and all requests are treated as user dev@localhost.
+	 *
+	 * Limits — enterprise plans can increase the CPU limit:
+	 *   "limits": { "cpu_ms": 30000 }
 	 */
 }
