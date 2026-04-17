@@ -19,6 +19,7 @@
 import { extractZipFiles, parseTextFile, categorizeWarpFile, extractKeyInfo } from './parsers.js';
 import { decodePcapFile } from './pcap-decoder.js';
 import { analyzePcapWithAI, analyzeWarpDiagnostics } from './ai-analyzer.js';
+import { analyzeWarpBundle, findLogEvidence } from './warp-analyzer.js';
 import { verifyAccessJWT } from './auth.js';
 import {
 	createSession, generateSessionId, getSessionMeta, getSessionPackets,
@@ -265,11 +266,18 @@ async function handleAnalyze(request, env, ctx, userEmail) {
 					} else {
 					try {
 							const fullContent = parseTextFile(data);
-							// Cap per-file content to 8KB to limit memory usage on large ZIPs
-							const content = fullContent.length > 8192 ? fullContent.substring(0, 8192) + '\n...[truncated]' : fullContent;
+							// Smart truncation: keep beginning and end for logs (most diagnostic info
+							// is in recent events); keep full content for small config files.
+							let content = fullContent;
+							const MAX_KEEP = 256 * 1024;  // 256KB per file — enough for daemon.log analysis
+							if (fullContent.length > MAX_KEEP) {
+								const head = fullContent.substring(0, 32 * 1024);
+								const tail = fullContent.substring(fullContent.length - (MAX_KEEP - 32 * 1024));
+								content = head + '\n\n...[truncated ' + (fullContent.length - MAX_KEEP) + ' bytes]...\n\n' + tail;
+							}
 							const cat = categorizeWarpFile(filename);
 							const keyInfo = extractKeyInfo(filename, content);
-							allLogFiles.push({ filename, content, category: cat.category, priority: cat.priority, keyInfo });
+							allLogFiles.push({ filename, content, category: cat.category, priority: cat.priority, keyInfo, originalSize: fullContent.length });
 						} catch (e) {
 							console.warn(`Failed to parse ${filename}:`, e.message);
 						}
@@ -333,9 +341,17 @@ async function handleAnalyze(request, env, ctx, userEmail) {
 			}
 		}
 
+		// ── Deep WARP analysis (rule-based, synchronous) ───────────────────────
+		let warpSnapshot = null;
+		if (allLogFiles.length > 0) {
+			console.log('[analyze] Running WARP bundle analysis...');
+			warpSnapshot = analyzeWarpBundle(allLogFiles);
+			console.log(`[analyze] WARP snapshot: health=${warpSnapshot.health}, ${warpSnapshot.findings.length} findings, ${warpSnapshot.timeline.length} timeline events`);
+		}
+
 		// ── Run AI analysis ────────────────────────────────────────────────────
 		console.log('[analyze] Starting AI analysis...');
-		const aiResult = await runAIAnalysis(env.AI, pcapResult, allLogFiles);
+		const aiResult = await runAIAnalysis(env.AI, pcapResult, allLogFiles, warpSnapshot);
 		console.log('[analyze] AI complete, success:', aiResult.success);
 
 		// ── Create session in background (don't block response) ────────────────
@@ -353,6 +369,7 @@ async function handleAnalyze(request, env, ctx, userEmail) {
 					stats: pcapResult?.stats || {},
 					warnings: pcapResult?.warnings || [],
 					warpFiles: allLogFiles,
+					warpSnapshot,
 				}, sessionId).then(async () => {
 					try {
 						await updateSessionAI(env.SESSIONS, sessionId, aiResult);
@@ -405,7 +422,12 @@ async function handleAnalyze(request, env, ctx, userEmail) {
 				filename: f.filename,
 				category: f.category,
 				priority: f.priority,
+				size: f.originalSize || f.content.length,
+				// Include full content so UI can show log viewer
+				content: f.content,
 			}));
+			// Include full structured WARP snapshot for the UI
+			if (warpSnapshot) response.warp = warpSnapshot;
 		}
 
 		console.log('[analyze] Sending response, sessionId:', sessionId);
@@ -419,7 +441,7 @@ async function handleAnalyze(request, env, ctx, userEmail) {
 
 // ── AI dispatch ────────────────────────────────────────────────────────────────
 
-async function runAIAnalysis(ai, pcapResult, logFiles) {
+async function runAIAnalysis(ai, pcapResult, logFiles, warpSnapshot) {
 	const results = {};
 
 	try {
@@ -441,7 +463,7 @@ async function runAIAnalysis(ai, pcapResult, logFiles) {
 			];
 			const pcapMeta = pcapResult?.metadata || null;
 			promises.push(
-				analyzeWarpDiagnostics(ai, priorityFiles, pcapMeta)
+				analyzeWarpDiagnostics(ai, priorityFiles, pcapMeta, warpSnapshot)
 					.then(r => { results.warp = r; })
 					.catch(e => { results.warp = { success: false, error: e.message }; })
 			);

@@ -92,17 +92,21 @@ export async function createSession(kv, userEmail, sessionData, sessionId = null
 		writes.push(kv.put(`session:${sessionId}:stats`, JSON.stringify(sessionData.stats), { expirationTtl: SESSION_TTL }));
 	}
 
-	// WARP diagnostics data
-	if (sessionData.warpFiles?.length > 0) {
-		writes.push(kv.put(`session:${sessionId}:warp`, JSON.stringify({
-			files: sessionData.warpFiles.map(f => ({
+	// WARP diagnostics data — store files (with full content) and structured snapshot
+	if (sessionData.warpFiles?.length > 0 || sessionData.warpSnapshot) {
+		const warpPayload = {
+			files: (sessionData.warpFiles || []).map(f => ({
 				filename: f.filename,
 				category: f.category,
 				priority: f.priority,
-				content: f.content?.substring(0, 10000), // Limit stored content
+				// Keep more content for the log viewer (up to 200KB per file)
+				content: f.content?.substring(0, 200_000),
+				originalSize: f.originalSize || f.content?.length || 0,
 				keyInfo: f.keyInfo,
 			})),
-		}), { expirationTtl: SESSION_TTL }));
+			snapshot: sessionData.warpSnapshot || null,
+		};
+		writes.push(kv.put(`session:${sessionId}:warp`, JSON.stringify(warpPayload), { expirationTtl: SESSION_TTL }));
 	}
 
 	// Add to user's session list

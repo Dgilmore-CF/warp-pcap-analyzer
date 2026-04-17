@@ -178,13 +178,14 @@ IMPORTANT: Respond with ONLY valid JSON, no other text. Use this exact structure
 
 /**
  * Analyse WARP diagnostic files with AI.
- * @param {Object} ai        Workers AI binding
- * @param {Array}  logFiles   Array of { filename, content, category, priority, keyInfo }
- * @param {Object} pcapMeta   Optional PCAP metadata from the diag bundle
+ * @param {Object} ai           Workers AI binding
+ * @param {Array}  logFiles     Array of { filename, content, category, priority, keyInfo }
+ * @param {Object} pcapMeta     Optional PCAP metadata from the diag bundle
+ * @param {Object} warpSnapshot Pre-parsed structured snapshot from warp-analyzer.js
  * @returns {Promise<Object>}
  */
-export async function analyzeWarpDiagnostics(ai, logFiles, pcapMeta) {
-	const context = buildWarpContext(logFiles, pcapMeta);
+export async function analyzeWarpDiagnostics(ai, logFiles, pcapMeta, warpSnapshot) {
+	const context = buildWarpContext(logFiles, pcapMeta, warpSnapshot);
 	const estimatedTokens = Math.ceil(context.length / 3.5);
 	const model = selectModel('warp_diagnostics', estimatedTokens);
 	const config = MODEL_CONFIG[model];
@@ -196,13 +197,29 @@ export async function analyzeWarpDiagnostics(ai, logFiles, pcapMeta) {
 
 	console.log(`[ai] WARP context: ${context.length} chars → ${truncatedContext.length} sent, model: ${config.label}`);
 
-	const userPrompt = `Analyse these Cloudflare WARP diagnostic files.
+	// Present the pre-parsed structured snapshot as primary context, raw logs as secondary
+	const userPrompt = `Analyse this Cloudflare WARP diagnostic bundle.
+
+${warpSnapshot ? `## Pre-parsed Structured Snapshot
+Health: ${warpSnapshot.health}
+Connection: ${JSON.stringify(warpSnapshot.connection)}
+Account: ${JSON.stringify(warpSnapshot.account)}
+Device: ${JSON.stringify({ platform: warpSnapshot.device.platform, version: warpSnapshot.connection.warpVersion, captureTime: warpSnapshot.device.captureTime })}
+Interfaces: ${(warpSnapshot.network.interfaces || []).map(i => `${i.name}${i.isWarp ? '(WARP)' : ''} ${i.up === false ? 'DOWN' : 'UP'} ${(i.addresses || []).map(a => a.addr).join(',')}`).join(' | ')}
+DNS: ${JSON.stringify(warpSnapshot.network.dns)}
+Settings: ${JSON.stringify(warpSnapshot.settings).substring(0, 1500)}
+Posture: ${(warpSnapshot.posture.checks || []).length} checks, ${(warpSnapshot.posture.checks || []).filter(c => c.passed === false).length} failed
+Timeline (first 30 events): ${JSON.stringify((warpSnapshot.timeline || []).slice(0, 30))}
+Pre-detected findings: ${JSON.stringify(warpSnapshot.findings || [])}
+` : ''}
 
 ## Files: ${logFiles.map(f => `${f.filename}(${f.category})`).join(', ')}
-${pcapMeta ? `\nPCAP: ${pcapMeta.packetCount || '?'} packets, ${pcapMeta.format || '?'}` : ''}
+${pcapMeta ? `\nPCAP: ${pcapMeta.packetCount || pcapMeta.totalPackets || '?'} packets, ${pcapMeta.format || '?'}` : ''}
 
-## Diagnostic Content
+## Raw Log Excerpts
 ${truncatedContext}
+
+Use the structured snapshot as your primary source of truth. The raw logs provide context but the snapshot has already extracted the key facts. Focus on correlating events across files, identifying root causes, and providing actionable remediation.
 
 Provide your analysis as JSON:
 {
@@ -338,31 +355,39 @@ function buildPcapContext(pcapData) {
 	return sections.join('\n');
 }
 
-function buildWarpContext(logFiles) {
+function buildWarpContext(logFiles, _pcapMeta, warpSnapshot) {
+	// When snapshot is provided, context focuses on raw log excerpts that complement
+	// what the snapshot already extracted. Otherwise, this is the primary input.
+	const hasSnapshot = !!warpSnapshot;
 	const sections = { keyLogs: '', networkConfig: '', connectionInfo: '' };
+	const maxPerFile = hasSnapshot ? 2500 : 5000;  // snapshot covers most, so send less raw
 
 	for (const file of logFiles) {
-		const maxLen = 5000;
 		const lines = file.content.split('\n');
+		// For logs, prefer lines near end (recent events); for config, prefer beginning
+		const isLog = file.category === 'connection' || file.category === 'logs' || file.filename.endsWith('.log');
+		const sampleLines = isLog && lines.length > 100 ? lines.slice(-100) : lines.slice(0, 200);
+
 		let numbered = '';
 		let charCount = 0;
+		const offset = isLog && lines.length > 100 ? lines.length - 100 : 0;
 
-		for (let i = 0; i < lines.length && charCount < maxLen; i++) {
-			const line = lines[i];
+		for (let i = 0; i < sampleLines.length && charCount < maxPerFile; i++) {
+			const line = sampleLines[i];
 			if (line.trim()) {
-				numbered += `[Line ${i + 1}] ${line}\n`;
+				numbered += `[L${offset + i + 1}] ${line}\n`;
 				charCount += line.length;
 			}
 		}
-		if (charCount >= maxLen) numbered += '... (truncated)\n';
+		if (charCount >= maxPerFile) numbered += '...(truncated)\n';
 
-		const header = `\n### ${file.filename} [${file.category}/${file.priority}]\n`;
+		const header = `\n### ${file.filename} [${file.category}]\n`;
 		if (file.category === 'connection') sections.connectionInfo += header + numbered;
 		else if (file.category === 'network') sections.networkConfig += header + numbered;
 		else sections.keyLogs += header + numbered;
 	}
 
-	return `## Connection & Status\n${sections.connectionInfo}\n\n## Network Configuration\n${sections.networkConfig}\n\n## Logs & Configuration\n${sections.keyLogs}`;
+	return `## Connection & Status\n${sections.connectionInfo}\n\n## Network Configuration\n${sections.networkConfig}\n\n## Other Logs\n${sections.keyLogs}`;
 }
 
 // ── Evidence enrichment ────────────────────────────────────────────────────────

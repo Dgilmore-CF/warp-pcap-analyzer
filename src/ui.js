@@ -277,6 +277,141 @@ select:focus,input:focus{border-color:var(--orange)}
 @keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
 .skeleton.short{width:60%}.skeleton.medium{width:80%}.skeleton.long{width:100%}
 
+/* ── WARP Diagnostics tab ─────────────────────────────────────────────── */
+.warp-layout{flex:1;display:flex;overflow:hidden}
+.warp-sidebar{width:200px;background:var(--bg2);border-right:1px solid var(--border);flex-shrink:0;padding:10px 0;overflow-y:auto}
+.warp-nav-item{display:flex;align-items:center;gap:10px;padding:9px 16px;font-size:13px;color:var(--text2);cursor:pointer;border-left:3px solid transparent;transition:all .15s}
+.warp-nav-item:hover{background:var(--bg3);color:var(--text)}
+.warp-nav-item.active{background:var(--bg3);color:var(--orange);border-left-color:var(--orange);font-weight:600}
+.warp-nav-item .badge-count{margin-left:auto;background:var(--bg4);color:var(--text2);padding:1px 7px;border-radius:10px;font-size:10px;font-weight:600;min-width:18px;text-align:center}
+.warp-nav-item.active .badge-count{background:var(--orange);color:#fff}
+.warp-nav-item.crit .badge-count{background:var(--red);color:#fff}
+.warp-nav-item.warn .badge-count{background:var(--yellow);color:#000}
+.warp-nav-sep{padding:10px 16px 4px;font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.5px}
+.warp-content{flex:1;overflow-y:auto;padding:20px 24px;background:var(--bg)}
+.warp-view{display:none}
+.warp-view.active{display:block}
+
+/* Dashboard summary cards */
+.warp-hero{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin-bottom:24px}
+.warp-hero-card{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:16px;position:relative;overflow:hidden}
+.warp-hero-card::before{content:'';position:absolute;inset:0;border-left:4px solid var(--blue)}
+.warp-hero-card.healthy::before{border-left-color:var(--green)}
+.warp-hero-card.degraded::before{border-left-color:var(--yellow)}
+.warp-hero-card.critical::before{border-left-color:var(--red)}
+.warp-hero-card h5{font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px;position:relative}
+.warp-hero-card .big{font-size:22px;font-weight:700;color:var(--text);font-family:var(--mono);line-height:1.2;position:relative;word-break:break-word}
+.warp-hero-card .sub{font-size:11px;color:var(--text2);margin-top:4px;position:relative}
+
+/* Info grid */
+.warp-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;margin-bottom:24px}
+.warp-card{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:16px;overflow:hidden;min-width:0}
+.warp-card h4{font-size:12px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center}
+.warp-card h4 .hcount{font-size:11px;color:var(--text3);font-weight:500;text-transform:none;letter-spacing:0}
+.warp-kv{display:flex;justify-content:space-between;gap:12px;padding:5px 0;font-size:12px;border-bottom:1px solid var(--border);min-width:0}
+.warp-kv:last-child{border:none}
+.warp-kv .k{color:var(--text2);flex-shrink:0}
+.warp-kv .v{color:var(--text);font-family:var(--mono);text-align:right;word-break:break-all;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:60%}
+.warp-kv .v.wrap{white-space:normal}
+.warp-kv .v-ok{color:var(--green)}.warp-kv .v-warn{color:var(--yellow)}.warp-kv .v-err{color:var(--red)}
+
+/* Interface card */
+.iface-item{border:1px solid var(--border);border-radius:6px;padding:10px 12px;margin-bottom:8px;background:var(--bg)}
+.iface-item:last-child{margin-bottom:0}
+.iface-item.warp{border-color:var(--orange);background:rgba(243,128,32,.04)}
+.iface-item .iname{font-family:var(--mono);font-weight:600;color:var(--text);display:flex;justify-content:space-between;align-items:center;font-size:13px}
+.iface-item .iname .istatus{font-size:10px;font-weight:500;padding:2px 8px;border-radius:10px}
+.iface-item .iname .istatus.up{background:rgba(63,185,80,.15);color:var(--green)}
+.iface-item .iname .istatus.down{background:rgba(248,81,73,.15);color:var(--red)}
+.iface-item .iname .istatus.warp-badge{background:var(--orange);color:#fff}
+.iface-item .iaddr{font-family:var(--mono);font-size:11px;color:var(--text2);margin-top:4px;word-break:break-all}
+.iface-item .imeta{font-size:10px;color:var(--text3);margin-top:3px}
+
+/* Posture checks */
+.posture-item{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--border);font-size:12px}
+.posture-item:last-child{border:none}
+.posture-item .pname{flex:1;color:var(--text)}
+.posture-item .picon{width:16px;height:16px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0}
+.posture-item .picon.pass{background:rgba(63,185,80,.2);color:var(--green)}
+.posture-item .picon.fail{background:rgba(248,81,73,.2);color:var(--red)}
+
+/* WARP Timeline */
+.warp-timeline{position:relative;padding-left:28px}
+.warp-timeline::before{content:'';position:absolute;left:10px;top:0;bottom:0;width:2px;background:var(--border)}
+.wtl-item{position:relative;margin-bottom:14px;padding:8px 10px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;border-left:3px solid var(--blue)}
+.wtl-item.critical{border-left-color:var(--red)}
+.wtl-item.error{border-left-color:var(--red)}
+.wtl-item.warning{border-left-color:var(--yellow)}
+.wtl-item.success{border-left-color:var(--green)}
+.wtl-item.info{border-left-color:var(--blue)}
+.wtl-dot{position:absolute;left:-23px;top:12px;width:12px;height:12px;border-radius:50%;background:var(--bg);border:2px solid var(--border);z-index:1}
+.wtl-item.critical .wtl-dot{border-color:var(--red);background:rgba(248,81,73,.3)}
+.wtl-item.error .wtl-dot{border-color:var(--red);background:rgba(248,81,73,.3)}
+.wtl-item.warning .wtl-dot{border-color:var(--yellow);background:rgba(210,153,34,.3)}
+.wtl-item.success .wtl-dot{border-color:var(--green);background:rgba(63,185,80,.3)}
+.wtl-header{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:3px}
+.wtl-type{font-size:12px;font-weight:600;color:var(--text)}
+.wtl-ts{font-size:10px;color:var(--text3);font-family:var(--mono)}
+.wtl-msg{font-size:11px;color:var(--text2);font-family:var(--mono);word-break:break-all;line-height:1.5}
+.wtl-src{font-size:10px;color:var(--text3);margin-top:3px;font-family:var(--mono)}
+.wtl-filters{display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap}
+
+/* Log viewer */
+.log-viewer{display:flex;height:calc(100vh - 220px);min-height:500px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.log-files{width:240px;border-right:1px solid var(--border);overflow-y:auto;flex-shrink:0}
+.log-file-item{padding:8px 12px;cursor:pointer;font-size:12px;color:var(--text2);border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:6px}
+.log-file-item:hover{background:var(--bg3);color:var(--text)}
+.log-file-item.active{background:var(--orange)15;color:var(--orange);font-weight:500}
+.log-file-item .lf-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--mono);font-size:11px}
+.log-file-item .lf-size{font-size:10px;color:var(--text3);flex-shrink:0}
+.log-panel{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
+.log-toolbar{padding:8px 12px;border-bottom:1px solid var(--border);display:flex;gap:8px;align-items:center;background:var(--bg3);flex-shrink:0;flex-wrap:wrap}
+.log-toolbar input{flex:1;min-width:200px;font-size:11px;padding:4px 8px;font-family:var(--mono)}
+.log-toolbar .lsel{font-size:11px;padding:3px 6px}
+.log-toolbar .lcnt{font-size:11px;color:var(--text3);white-space:nowrap}
+.log-body{flex:1;overflow:auto;font-family:var(--mono);font-size:11px;line-height:1.55;padding:8px 0}
+.log-line{display:flex;padding:0 12px;white-space:pre;min-height:18px}
+.log-line:hover{background:var(--bg3)}
+.log-line.matched{background:rgba(243,128,32,.12)}
+.log-line.critical,.log-line.error{color:#ffa198}
+.log-line.warning{color:#ffc680}
+.log-line.success{color:#7ee787}
+.log-line .ln-num{color:var(--text3);width:48px;text-align:right;padding-right:12px;flex-shrink:0;user-select:none}
+.log-line .ln-txt{flex:1;word-break:break-all;white-space:pre-wrap}
+.log-line .hl{background:var(--orange);color:#000;padding:0 2px;border-radius:2px}
+
+/* File list (all files) */
+.filelist-table{width:100%;font-size:12px;border-collapse:collapse}
+.filelist-table th{text-align:left;padding:8px 10px;background:var(--bg3);color:var(--text2);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.3px;border-bottom:1px solid var(--border);position:sticky;top:0}
+.filelist-table td{padding:6px 10px;border-bottom:1px solid var(--border);font-family:var(--mono)}
+.filelist-table tr:hover td{background:var(--bg3)}
+.filelist-table tr.clickable{cursor:pointer}
+.filelist-table .cat{display:inline-block;padding:1px 8px;border-radius:3px;font-size:10px;font-weight:600;background:var(--bg3);color:var(--text2)}
+.filelist-table .cat.connection{background:rgba(88,166,255,.15);color:var(--blue)}
+.filelist-table .cat.dns{background:rgba(124,196,255,.15);color:#79c0ff}
+.filelist-table .cat.network{background:rgba(57,210,192,.15);color:var(--cyan)}
+.filelist-table .cat.config{background:rgba(188,140,255,.15);color:var(--purple)}
+.filelist-table .cat.security{background:rgba(248,81,73,.15);color:var(--red)}
+.filelist-table .cat.system{background:rgba(139,148,158,.15);color:var(--text2)}
+
+/* Health banner */
+.health-banner{display:flex;align-items:center;gap:14px;padding:16px 20px;border-radius:10px;margin-bottom:20px;background:var(--bg2);border:1px solid var(--border);border-left:5px solid var(--blue)}
+.health-banner.healthy{border-left-color:var(--green);background:rgba(63,185,80,.06)}
+.health-banner.degraded{border-left-color:var(--yellow);background:rgba(210,153,34,.06)}
+.health-banner.critical{border-left-color:var(--red);background:rgba(248,81,73,.06)}
+.health-banner .hicon{width:42px;height:42px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;background:var(--bg3)}
+.health-banner.healthy .hicon{background:rgba(63,185,80,.15);color:var(--green)}
+.health-banner.degraded .hicon{background:rgba(210,153,34,.15);color:var(--yellow)}
+.health-banner.critical .hicon{background:rgba(248,81,73,.15);color:var(--red)}
+.health-banner .hbody{flex:1}
+.health-banner .htitle{font-size:16px;font-weight:600;color:var(--text);margin-bottom:3px}
+.health-banner .hsub{font-size:12px;color:var(--text2)}
+
+/* Empty states */
+.warp-empty{text-align:center;padding:60px 20px;color:var(--text3)}
+.warp-empty h4{font-size:14px;color:var(--text2);margin-bottom:8px;font-weight:600}
+.warp-empty p{font-size:12px}
+
 /* ── I/O Graph ────────────────────────────────────────────────────────── */
 .io-graph{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:16px;margin:16px}
 .io-graph-svg{width:100%;height:auto;max-height:320px;display:block}
@@ -435,7 +570,38 @@ Supports: .zip (warp-diag) &middot; .pcap &middot; .pcapng &middot; .log &middot
 
 <!-- WARP Diagnostics Tab -->
 <div class="tab-pane" id="tab-warp">
-<div class="ai-wrap" id="warpContent"><div class="empty-state">WARP diagnostics data not available</div></div>
+<div class="warp-layout">
+<div class="warp-sidebar" id="warpSidebar">
+<div class="warp-nav-sep">Overview</div>
+<div class="warp-nav-item active" data-warp-view="dashboard">Dashboard</div>
+<div class="warp-nav-item" data-warp-view="findings">Findings <span class="badge-count" id="wCountFindings">0</span></div>
+<div class="warp-nav-sep">Activity</div>
+<div class="warp-nav-item" data-warp-view="timeline">Timeline <span class="badge-count" id="wCountTimeline">0</span></div>
+<div class="warp-nav-item" data-warp-view="logs">Log Viewer</div>
+<div class="warp-nav-sep">State</div>
+<div class="warp-nav-item" data-warp-view="connection">Connection</div>
+<div class="warp-nav-item" data-warp-view="network">Network</div>
+<div class="warp-nav-item" data-warp-view="dns">DNS</div>
+<div class="warp-nav-item" data-warp-view="account">Account</div>
+<div class="warp-nav-item" data-warp-view="posture">Device Posture</div>
+<div class="warp-nav-item" data-warp-view="settings">Settings & MDM</div>
+<div class="warp-nav-sep">Files</div>
+<div class="warp-nav-item" data-warp-view="files">All Files <span class="badge-count" id="wCountFiles">0</span></div>
+</div>
+<div class="warp-content" id="warpContent">
+<div class="warp-view active" id="warp-dashboard"></div>
+<div class="warp-view" id="warp-findings"></div>
+<div class="warp-view" id="warp-timeline"></div>
+<div class="warp-view" id="warp-logs"></div>
+<div class="warp-view" id="warp-connection"></div>
+<div class="warp-view" id="warp-network"></div>
+<div class="warp-view" id="warp-dns"></div>
+<div class="warp-view" id="warp-account"></div>
+<div class="warp-view" id="warp-posture"></div>
+<div class="warp-view" id="warp-settings"></div>
+<div class="warp-view" id="warp-files"></div>
+</div>
+</div>
 </div>
 </div>
 
@@ -500,7 +666,7 @@ const ROW_HEIGHT=22;   // px per packet row
 const OVERSCAN=10;      // extra rows to render outside viewport for smooth scroll
 
 let state={
-packets:[],flows:{},stats:{},ai:null,sessionId:null,warpFiles:null,
+packets:[],flows:{},stats:{},ai:null,sessionId:null,warpFiles:null,warp:null,
 selectedIdx:-1,filteredPackets:null,allPackets:[],
 sortBy:null,sortDir:'asc',timeFormat:'relative', // 'relative' | 'absolute' | 'delta'
 };
@@ -583,6 +749,7 @@ function loadResults(data){
 state.sessionId=data.sessionId;
 state.ai=data.ai;
 state.warpFiles=data.warpFiles||null;
+state.warp=data.warp||null;
 
 if(data.pcap){
 state.allPackets=data.pcap.packets||[];
@@ -601,7 +768,8 @@ $('btnBack').classList.remove('hidden');
 exportSelect.classList.remove('hidden');
 
 const warpTab=document.querySelector('[data-tab="warp"]');
-if(state.warpFiles&&state.warpFiles.length>0)warpTab.classList.remove('hidden');
+const hasWarp=(state.warpFiles&&state.warpFiles.length>0)||state.warp;
+if(hasWarp)warpTab.classList.remove('hidden');
 else warpTab.classList.add('hidden');
 
 buildPacketHeader();
@@ -610,7 +778,7 @@ renderConversations();
 renderStats();
 renderAI();
 renderTimeline();
-if(state.warpFiles)renderWarp(data);
+if(hasWarp)renderWarp(data);
 updateStatusBar(data);
 
 // Auto-select first packet
@@ -1441,29 +1609,677 @@ html+='</div></div>';
 timelineContent.innerHTML=html;
 }
 
-// ── WARP tab ────────────────────────────────────────────────────────
+// ── WARP Diagnostics ────────────────────────────────────────────────
+// Full WARP snapshot is stored in state.warp (from warp-analyzer.js).
+// Each sub-view is a separate function; sidebar navigation switches between them.
+let warpLogState={currentFile:null,filter:'',severityFilter:'all'};
+
 function renderWarp(data){
+const warp=state.warp||data.warp;
+const files=data.warpFiles||[];
 const warpAI=state.ai?.warp?.analysis||state.ai?.warp?.fallback;
-let html='<div class="ai-section"><h3>WARP Diagnostic Files</h3>';
-if(data.warpFiles){
-html+='<table class="conv-table"><thead><tr><th>File</th><th>Category</th><th>Priority</th></tr></thead><tbody>';
-data.warpFiles.forEach(f=>{
-html+='<tr><td>'+esc(f.filename)+'</td><td>'+esc(f.category)+'</td><td>'+esc(f.priority)+'</td></tr>';
+
+if(!warp&&files.length===0){
+document.querySelectorAll('.warp-view').forEach(v=>v.innerHTML='<div class="warp-empty"><h4>No WARP diagnostics data</h4><p>Upload a warp-diag ZIP bundle to populate this view.</p></div>');
+return;
+}
+
+// Update sidebar counts
+const findingsList=[...(warp?.findings||[]),...(warpAI?.issues||[])];
+$('wCountFindings').textContent=findingsList.length;
+$('wCountFindings').parentElement.className='warp-nav-item'+
+(findingsList.some(f=>f.severity==='Critical')?' crit':findingsList.some(f=>f.severity==='Warning')?' warn':'');
+$('wCountTimeline').textContent=(warp?.timeline||[]).length;
+$('wCountFiles').textContent=files.length;
+
+// Render each view
+renderWarpDashboard(warp,files,warpAI);
+renderWarpFindings(findingsList,files);
+renderWarpTimeline(warp?.timeline||[]);
+renderWarpLogs(files);
+renderWarpConnection(warp,warpAI);
+renderWarpNetwork(warp);
+renderWarpDns(warp);
+renderWarpAccount(warp);
+renderWarpPosture(warp);
+renderWarpSettings(warp,warpAI);
+renderWarpFiles(files);
+
+// Sidebar nav wiring
+document.querySelectorAll('.warp-nav-item').forEach(item=>{
+item.onclick=()=>{
+const view=item.dataset.warpView;
+if(!view)return;
+document.querySelectorAll('.warp-nav-item').forEach(n=>n.classList.remove('active'));
+document.querySelectorAll('.warp-view').forEach(v=>v.classList.remove('active'));
+item.classList.add('active');
+const pane=$('warp-'+view);
+if(pane)pane.classList.add('active');
+};
+});
+}
+
+// ── Dashboard ────────────────────────────────────────────────────────
+function renderWarpDashboard(warp,files,warpAI){
+const c=warp?.connection||{};
+const a=warp?.account||{};
+const d=warp?.device||{};
+const dns=warp?.network?.dns||{};
+const health=warp?.health||warpAI?.health_status||'Unknown';
+const findings=warp?.findings||[];
+const warpIface=(warp?.network?.interfaces||[]).find(i=>i.isWarp);
+
+const connectionState=(c.status||'').toLowerCase();
+const healthClass=health.toLowerCase();
+const healthIcon=health==='Healthy'?'\u2713':health==='Degraded'?'\u26A0':health==='Critical'?'\u2716':'?';
+const statusClass=connectionState==='connected'?'healthy':(connectionState==='disconnected'||connectionState==='disabled')?'critical':'degraded';
+
+let html='';
+
+// Health banner
+html+='<div class="health-banner '+healthClass+'"><div class="hicon">'+healthIcon+'</div><div class="hbody"><div class="htitle">'+health+(health==='Healthy'?' — WARP is operating normally':' — Issues detected')+'</div><div class="hsub">'+findings.length+' rule-based finding(s), '+(warp?.timeline?.length||0)+' timeline event(s), '+files.length+' files analysed</div></div></div>';
+
+// Hero cards
+html+='<div class="warp-hero">';
+html+=heroCard('Connection Status',c.status||'Unknown',c.mode||'',statusClass);
+html+=heroCard('WARP Version',c.warpVersion||'Unknown',d.platform||'');
+html+=heroCard('Team',a.team||'Not linked',a.user||a.accountId||'');
+html+=heroCard('Colo / Endpoint',c.colo||'\u2014',c.endpoint||'');
+html+=heroCard('Your IP',c.myIp||'\u2014',c.gatewayIp?'via '+c.gatewayIp:'');
+html+=heroCard('DNS Mode',dns.protocol||'default',(dns.nameservers||[]).slice(0,2).join(', ')||'');
+if(warpIface){
+html+=heroCard('WARP Interface',warpIface.name,(warpIface.addresses||[]).map(a=>a.addr).join(', ')||(warpIface.up===false?'DOWN':'UP'),warpIface.up===false?'critical':'healthy');
+}else{
+html+=heroCard('WARP Interface','Not found','Tunnel interface missing','critical');
+}
+html+=heroCard('Capture Time',d.captureTime||'\u2014','');
+html+='</div>';
+
+// Findings preview (first 3 critical)
+const criticalFindings=findings.filter(f=>f.severity==='Critical').slice(0,3);
+if(criticalFindings.length>0){
+html+='<h3 style="font-size:14px;font-weight:600;margin-bottom:10px;color:var(--red)">Critical Findings</h3>';
+html+='<div style="margin-bottom:24px">';
+criticalFindings.forEach(f=>{
+html+='<div class="issue-card critical"><div class="title">'+esc(f.title||'')+'</div><div class="desc">'+esc(f.description||'')+'</div></div>';
+});
+html+='</div>';
+}
+
+// Quick overview
+html+='<div class="warp-grid">';
+// Connection summary
+html+='<div class="warp-card"><h4>Connection</h4>';
+html+=kv('Status',c.status||'Unknown',statusClass==='healthy'?'v-ok':statusClass==='critical'?'v-err':'v-warn');
+if(c.mode)html+=kv('Mode',c.mode);
+if(c.alwaysOn)html+=kv('Always-on',c.alwaysOn);
+if(c.switchLocked)html+=kv('Switch Locked',c.switchLocked);
+if(c.accountType)html+=kv('Account Type',c.accountType);
+html+='</div>';
+
+// Network summary
+const iCount=(warp?.network?.interfaces||[]).length;
+const upCount=(warp?.network?.interfaces||[]).filter(i=>i.up!==false).length;
+html+='<div class="warp-card"><h4>Network <span class="hcount">'+iCount+' interface(s)</span></h4>';
+html+=kv('Interfaces up',upCount+' / '+iCount);
+html+=kv('Routes',(warp?.network?.routes||[]).length);
+html+=kv('DNS servers',(dns.nameservers||[]).length);
+if(dns.testsFailed!==undefined)html+=kv('DNS tests failed',dns.testsFailed+' / '+(dns.testsTotal||0),dns.testsFailed>0?'v-warn':'v-ok');
+html+='</div>';
+
+// Posture summary
+const posture=warp?.posture?.checks||[];
+html+='<div class="warp-card"><h4>Device Posture <span class="hcount">'+posture.length+' check(s)</span></h4>';
+if(posture.length>0){
+const passed=posture.filter(p=>p.passed).length;
+html+=kv('Passed',passed+' / '+posture.length,passed===posture.length?'v-ok':'v-warn');
+posture.slice(0,5).forEach(p=>{
+html+=kv(p.name||'check',p.status||(p.passed?'pass':'fail'),p.passed?'v-ok':'v-err');
+});
+}else{
+html+='<div style="color:var(--text3);font-size:12px;padding:8px 0">No posture data</div>';
+}
+html+='</div>';
+html+='</div>';
+
+$('warp-dashboard').innerHTML=html;
+}
+
+function heroCard(title,big,sub,cls){
+return '<div class="warp-hero-card'+(cls?' '+cls:'')+'"><h5>'+esc(title)+'</h5><div class="big">'+esc(big)+'</div>'+(sub?'<div class="sub">'+esc(sub)+'</div>':'')+'</div>';
+}
+
+function kv(k,v,cls){
+return '<div class="warp-kv"><span class="k">'+esc(k)+'</span><span class="v '+(cls||'')+'" title="'+esc(v)+'">'+esc(v)+'</span></div>';
+}
+
+// ── Findings ─────────────────────────────────────────────────────────
+function renderWarpFindings(findings,files){
+if(!findings||findings.length===0){
+$('warp-findings').innerHTML='<div class="warp-empty"><h4>No findings</h4><p>No issues detected by rule-based analysis or AI.</p></div>';
+return;
+}
+
+// Group by severity
+const grouped={Critical:[],Warning:[],Info:[]};
+findings.forEach(f=>{grouped[f.severity||'Info']=grouped[f.severity||'Info']||[];grouped[f.severity||'Info'].push(f)});
+
+let html='<h3 style="font-size:16px;font-weight:600;margin-bottom:16px">Findings ('+findings.length+')</h3>';
+
+['Critical','Warning','Info'].forEach(sev=>{
+const list=grouped[sev];
+if(!list||!list.length)return;
+html+='<h4 style="font-size:12px;font-weight:700;text-transform:uppercase;color:var(--text3);letter-spacing:.5px;margin:16px 0 8px">'+sev+' ('+list.length+')</h4>';
+list.forEach(f=>{
+html+='<div class="issue-card '+sev.toLowerCase()+'">';
+html+='<div class="title">['+sev+'] '+esc(f.title||'')+(f.category?' <span class="badge badge-info" style="margin-left:6px;font-size:10px">'+esc(f.category)+'</span>':'')+'</div>';
+html+='<div class="desc">'+esc(f.description||'')+'</div>';
+if(f.root_cause)html+='<p style="font-size:12px;margin-bottom:8px"><strong>Root Cause:</strong> '+esc(f.root_cause)+'</p>';
+if(f.remediation)html+='<div class="remed"><strong>Remediation:</strong>'+formatRemed(f.remediation)+'</div>';
+// Evidence links — click to jump to log viewer
+if(f.evidence_keywords&&f.evidence_keywords.length){
+const kws=Array.isArray(f.evidence_keywords)?f.evidence_keywords:[f.evidence_keywords];
+html+='<div style="margin-top:10px;font-size:11px"><strong style="color:var(--text2)">Search in logs:</strong> ';
+html+=kws.slice(0,5).map(kw=>'<button class="filter-chip" style="font-size:10px;padding:2px 8px;margin-right:4px" onclick="window.__warpJump && window.__warpJump('+JSON.stringify(String(kw))+')">'+esc(String(kw).substring(0,40))+'</button>').join('');
+html+='</div>';
+}
+// Log entries from AI enrichment
+if(f.log_entries&&f.log_entries.length){
+html+='<details class="evidence-toggle" style="margin-top:10px"><summary>View '+f.log_entries.length+' log evidence entries</summary>';
+f.log_entries.forEach(e=>{
+html+='<div class="evidence-block"><div class="evidence-header">'+esc(e.filename)+' (line '+e.lineNumber+')</div><pre style="margin:0;white-space:pre-wrap;font-size:11px">'+esc(e.content||'')+'</pre></div>';
+});
+html+='</details>';
+}
+html+='</div>';
+});
+});
+
+$('warp-findings').innerHTML=html;
+
+// Expose jump helper so evidence chips can invoke log search
+window.__warpJump=(kw)=>{
+document.querySelectorAll('.warp-nav-item').forEach(n=>n.classList.remove('active'));
+document.querySelectorAll('.warp-view').forEach(v=>v.classList.remove('active'));
+document.querySelector('[data-warp-view="logs"]').classList.add('active');
+$('warp-logs').classList.add('active');
+warpLogState.filter=kw;
+renderWarpLogs(state.warpFiles||[]);
+const filterInp=document.querySelector('#warpLogFilter');
+if(filterInp)filterInp.value=kw;
+};
+}
+
+// ── Timeline ─────────────────────────────────────────────────────────
+function renderWarpTimeline(timeline){
+if(!timeline||timeline.length===0){
+$('warp-timeline').innerHTML='<div class="warp-empty"><h4>No timeline events</h4><p>No parseable events found in logs.</p></div>';
+return;
+}
+
+// Severity filters
+let html='<h3 style="font-size:16px;font-weight:600;margin-bottom:16px">Timeline ('+timeline.length+' events)</h3>';
+html+='<div class="wtl-filters">';
+const sevCounts={critical:0,error:0,warning:0,success:0,info:0};
+timeline.forEach(e=>{sevCounts[e.severity]=(sevCounts[e.severity]||0)+1});
+['all','critical','error','warning','success','info'].forEach(s=>{
+const count=s==='all'?timeline.length:(sevCounts[s]||0);
+if(count===0&&s!=='all')return;
+html+='<span class="filter-chip" data-tl-sev="'+s+'">'+s[0].toUpperCase()+s.slice(1)+' ('+count+')</span>';
+});
+html+='</div>';
+
+html+='<div class="warp-timeline" id="warpTimelineList">';
+timeline.forEach(e=>{
+const sev=e.severity||'info';
+html+='<div class="wtl-item '+sev+'" data-sev="'+sev+'"><div class="wtl-dot"></div>';
+html+='<div class="wtl-header"><div class="wtl-type">'+esc(e.type||'Event')+'</div><div class="wtl-ts">'+esc(e.timestamp||'')+'</div></div>';
+if(e.message)html+='<div class="wtl-msg">'+esc(e.message)+'</div>';
+if(e.source)html+='<div class="wtl-src">'+esc(e.source)+(e.lineNumber?':'+e.lineNumber:'')+'</div>';
+html+='</div>';
+});
+html+='</div>';
+
+$('warp-timeline').innerHTML=html;
+
+// Wire severity filters
+$('warp-timeline').querySelectorAll('[data-tl-sev]').forEach(chip=>{
+chip.onclick=()=>{
+const s=chip.dataset.tlSev;
+$('warp-timeline').querySelectorAll('[data-tl-sev]').forEach(c=>c.classList.remove('active'));
+chip.classList.add('active');
+$('warp-timeline').querySelectorAll('.wtl-item').forEach(el=>{
+el.style.display=(s==='all'||el.dataset.sev===s)?'':'none';
+});
+};
+});
+}
+
+// ── Log viewer ───────────────────────────────────────────────────────
+function renderWarpLogs(files){
+if(!files||files.length===0){
+$('warp-logs').innerHTML='<div class="warp-empty"><h4>No log files</h4></div>';
+return;
+}
+
+// Filter to log-type files first
+const logFiles=files.filter(f=>
+f.filename.endsWith('.log')||f.filename.endsWith('.txt')||f.filename.endsWith('.json')||
+f.category==='connection'||f.category==='dns'||f.category==='logs'
+);
+
+const current=warpLogState.currentFile||(logFiles[0]?.filename);
+
+let html='<h3 style="font-size:16px;font-weight:600;margin-bottom:12px">Log Viewer</h3>';
+html+='<div class="log-viewer">';
+// File list
+html+='<div class="log-files" id="logFilesList">';
+logFiles.forEach(f=>{
+const active=f.filename===current?' active':'';
+html+='<div class="log-file-item'+active+'" data-logfile="'+esc(f.filename)+'"><span class="lf-name" title="'+esc(f.filename)+'">'+esc(f.filename.split('/').pop())+'</span><span class="lf-size">'+fmtBytes(f.size||f.content.length)+'</span></div>';
+});
+html+='</div>';
+// Panel
+html+='<div class="log-panel">';
+html+='<div class="log-toolbar">';
+html+='<input type="text" id="warpLogFilter" placeholder="Search (text or regex)..." value="'+esc(warpLogState.filter)+'">';
+html+='<select class="lsel" id="warpLogSev"><option value="all">All severities</option><option value="critical">Critical</option><option value="error">Error</option><option value="warning">Warning</option><option value="info">Info</option></select>';
+html+='<span class="lcnt" id="warpLogCount"></span>';
+html+='<button class="btn btn-sm btn-ghost" id="btnLogCopy" title="Copy visible lines">Copy</button>';
+html+='<button class="btn btn-sm btn-ghost" id="btnLogDownload" title="Download original">Download</button>';
+html+='</div>';
+html+='<div class="log-body" id="warpLogBody"></div>';
+html+='</div>';
+html+='</div>';
+$('warp-logs').innerHTML=html;
+
+// Render selected file content
+renderLogContent(logFiles,current);
+
+// Wire up events
+$('warp-logs').querySelectorAll('[data-logfile]').forEach(el=>{
+el.onclick=()=>{
+warpLogState.currentFile=el.dataset.logfile;
+$('warp-logs').querySelectorAll('[data-logfile]').forEach(e=>e.classList.remove('active'));
+el.classList.add('active');
+renderLogContent(logFiles,warpLogState.currentFile);
+};
+});
+
+const filterInp=$('warpLogFilter');
+filterInp.oninput=()=>{warpLogState.filter=filterInp.value;renderLogContent(logFiles,warpLogState.currentFile)};
+$('warpLogSev').onchange=e=>{warpLogState.severityFilter=e.target.value;renderLogContent(logFiles,warpLogState.currentFile)};
+$('btnLogCopy').onclick=()=>{
+const body=$('warpLogBody');
+const txt=[...body.querySelectorAll('.log-line:not([style*="none"])')].map(l=>l.querySelector('.ln-txt')?.textContent||'').join('\n');
+copyText(txt);
+};
+$('btnLogDownload').onclick=()=>{
+const f=logFiles.find(ff=>ff.filename===warpLogState.currentFile);
+if(!f)return;
+const blob=new Blob([f.content],{type:'text/plain'});
+const url=URL.createObjectURL(blob);
+const a=document.createElement('a');a.href=url;a.download=f.filename.split('/').pop();a.click();
+URL.revokeObjectURL(url);
+};
+}
+
+function renderLogContent(logFiles,filename){
+const f=logFiles.find(ff=>ff.filename===filename);
+const body=$('warpLogBody');
+const countEl=$('warpLogCount');
+if(!f||!body){if(body)body.innerHTML='<div class="warp-empty"><p>Select a file</p></div>';return}
+
+const lines=f.content.split('\n');
+const filter=warpLogState.filter||'';
+const sevFilter=warpLogState.severityFilter||'all';
+
+let isRegex=false;
+let regex=null;
+if(filter.startsWith('/')&&filter.lastIndexOf('/')>0){
+try{
+const parts=filter.slice(1).split('/');
+regex=new RegExp(parts.slice(0,-1).join('/'),parts[parts.length-1]||'i');
+isRegex=true;
+}catch(_){/* fall back */}
+}
+
+let visible=0;
+const MAX_RENDER=5000;
+let html='';
+for(let i=0;i<lines.length;i++){
+const line=lines[i];
+const sev=classifyLogSeverity(line);
+if(sevFilter!=='all'&&sev!==sevFilter)continue;
+if(filter){
+const haystack=line.toLowerCase();
+if(isRegex){if(!regex.test(line))continue}
+else if(!haystack.includes(filter.toLowerCase()))continue;
+}
+visible++;
+if(visible>MAX_RENDER){html+='<div class="log-line" style="color:var(--text3);font-style:italic">...[stopped rendering at '+MAX_RENDER+' lines, refine your filter]</div>';break}
+
+let displayed=esc(line);
+if(filter&&!isRegex){
+const re=new RegExp('('+filter.replace(/[.*+?^\${}()|[\\]\\\\]/g,'\\\\$&')+')','gi');
+displayed=displayed.replace(re,'<span class="hl">$1</span>');
+}
+html+='<div class="log-line '+sev+(filter?' matched':'')+'"><span class="ln-num">'+(i+1)+'</span><span class="ln-txt">'+displayed+'</span></div>';
+}
+if(visible===0){html='<div style="padding:20px;color:var(--text3);text-align:center">No matching lines</div>'}
+body.innerHTML=html;
+countEl.textContent=visible.toLocaleString()+' of '+lines.length.toLocaleString()+' lines';
+}
+
+function classifyLogSeverity(line){
+if(/\b(FATAL|CRITICAL|panic|unreachable)\b/i.test(line))return 'critical';
+if(/\b(ERROR|ERR|failed|failure|exception|cannot|unable)\b/i.test(line))return 'error';
+if(/\b(WARN|WARNING|timeout|retry|deprecated)\b/i.test(line))return 'warning';
+if(/\b(success|connected|established|ok)\b/i.test(line))return 'success';
+return 'info';
+}
+
+// ── Connection view ──────────────────────────────────────────────────
+function renderWarpConnection(warp,warpAI){
+const c=warp?.connection||{};
+const a=warp?.account||{};
+let html='<h3 style="font-size:16px;font-weight:600;margin-bottom:16px">Connection State</h3>';
+html+='<div class="warp-grid">';
+
+// Status card
+html+='<div class="warp-card"><h4>Tunnel Status</h4>';
+html+=kv('Status',c.status||'Unknown');
+html+=kv('Mode',c.mode||'Unknown');
+html+=kv('WARP Version',c.warpVersion||'Unknown');
+if(c.alwaysOn)html+=kv('Always-on',c.alwaysOn);
+if(c.switchLocked)html+=kv('Switch Locked',c.switchLocked);
+if(c.accountType)html+=kv('Account Type',c.accountType);
+html+='</div>';
+
+// Endpoint card
+html+='<div class="warp-card"><h4>Endpoint</h4>';
+html+=kv('Colo',c.colo||'\u2014');
+html+=kv('Endpoint',c.endpoint||'\u2014');
+html+=kv('My IP',c.myIp||'\u2014');
+html+=kv('Gateway IP',c.gatewayIp||'\u2014');
+html+='</div>';
+
+// Account card
+html+='<div class="warp-card"><h4>Account</h4>';
+html+=kv('Team',a.team||'\u2014');
+if(a.user)html+=kv('User',a.user);
+if(a.organization)html+=kv('Organization',a.organization);
+if(a.license)html+=kv('License',a.license);
+html+='</div>';
+
+// Connectivity tests
+if(c.connectivityTests&&c.connectivityTests.length){
+html+='<div class="warp-card" style="grid-column:1/-1"><h4>Connectivity Tests <span class="hcount">'+c.connectivityTests.length+'</span></h4>';
+c.connectivityTests.forEach(t=>{
+const cls=t.result?(/pass|ok|success|reachable/i.test(t.result)?'v-ok':'v-err'):'';
+const val=t.result?t.result:(t.latencyMs?t.latencyMs.toFixed(2)+' ms':'-');
+html+=kv(t.target,val,cls);
+});
+html+='</div>';
+}
+
+// AI configuration review
+const cr=warpAI?.configuration_review;
+if(cr){
+html+='<div class="warp-card" style="grid-column:1/-1"><h4>AI Configuration Review</h4>';
+if(cr.warp_mode)html+=kv('WARP Mode',cr.warp_mode);
+if(cr.split_tunnel)html+=kv('Split Tunnel',cr.split_tunnel);
+if(cr.dns_settings)html+=kv('DNS Settings',cr.dns_settings);
+if(cr.certificate_status)html+=kv('Certificate',cr.certificate_status);
+if(cr.notes&&cr.notes.length){
+html+='<div style="margin-top:8px;font-size:12px;color:var(--text2)"><strong>Notes:</strong><ul style="margin:4px 0 0 20px">'+cr.notes.map(n=>'<li>'+esc(n)+'</li>').join('')+'</ul></div>';
+}
+html+='</div>';
+}
+
+html+='</div>';
+$('warp-connection').innerHTML=html;
+}
+
+// ── Network view ─────────────────────────────────────────────────────
+function renderWarpNetwork(warp){
+const net=warp?.network||{};
+const interfaces=net.interfaces||[];
+const routes=net.routes||[];
+const arp=net.arp||[];
+const traces=net.traceroutes||[];
+
+let html='<h3 style="font-size:16px;font-weight:600;margin-bottom:16px">Network State</h3>';
+
+// Interfaces
+html+='<div class="warp-card" style="margin-bottom:16px"><h4>Interfaces <span class="hcount">'+interfaces.length+'</span></h4>';
+if(interfaces.length===0)html+='<div style="color:var(--text3);font-size:12px">No interface data</div>';
+interfaces.forEach(i=>{
+html+='<div class="iface-item'+(i.isWarp?' warp':'')+'">';
+html+='<div class="iname"><span>'+esc(i.name)+'</span><span>';
+if(i.isWarp)html+='<span class="istatus warp-badge">WARP</span> ';
+html+='<span class="istatus '+(i.up===false?'down':'up')+'">'+(i.up===false?'DOWN':'UP')+'</span></span></div>';
+if(i.addresses&&i.addresses.length){
+html+='<div class="iaddr">'+i.addresses.map(a=>esc(a.family+' '+a.addr+(a.netmask?'/'+a.netmask:''))).join('<br>')+'</div>';
+}
+const meta=[];
+if(i.mac)meta.push('MAC: '+i.mac);
+if(i.mtu)meta.push('MTU: '+i.mtu);
+if(meta.length)html+='<div class="imeta">'+esc(meta.join(' \u2022 '))+'</div>';
+html+='</div>';
+});
+html+='</div>';
+
+// Routes
+if(routes.length){
+html+='<div class="warp-card" style="margin-bottom:16px"><h4>Routes <span class="hcount">'+routes.length+'</span></h4>';
+html+='<table class="filelist-table"><thead><tr><th>Destination</th><th>Gateway</th><th>Interface</th></tr></thead><tbody>';
+routes.slice(0,50).forEach(r=>{
+html+='<tr><td>'+esc(r.dest)+'</td><td>'+esc(r.gateway||'\u2014')+'</td><td>'+esc(r.iface||'\u2014')+'</td></tr>';
+});
+html+='</tbody></table></div>';
+}
+
+// ARP
+if(arp.length){
+html+='<div class="warp-card" style="margin-bottom:16px"><h4>ARP Table <span class="hcount">'+arp.length+' entries</span></h4>';
+html+='<table class="filelist-table"><thead><tr><th>IP</th><th>MAC</th><th>Hostname</th></tr></thead><tbody>';
+arp.slice(0,50).forEach(e=>{
+html+='<tr><td>'+esc(e.ip)+'</td><td>'+esc(e.mac)+'</td><td>'+esc(e.hostname||'\u2014')+'</td></tr>';
+});
+html+='</tbody></table></div>';
+}
+
+// Traceroutes
+if(traces.length){
+html+='<h4 style="font-size:13px;font-weight:600;margin:16px 0 10px">Traceroutes</h4>';
+traces.forEach(t=>{
+html+='<div class="warp-card" style="margin-bottom:16px"><h4>'+esc(t.target)+' <span class="hcount">'+t.hops.length+' hops</span></h4>';
+html+='<table class="filelist-table"><thead><tr><th>Hop</th><th>Host</th><th>IP</th><th>Latency</th></tr></thead><tbody>';
+t.hops.forEach(h=>{
+const lat=h.timeout?'*':(h.latencyMs!==null?h.latencyMs.toFixed(2)+' ms':'\u2014');
+html+='<tr><td>'+h.hop+'</td><td>'+esc(h.host||'*')+'</td><td>'+esc(h.ip||'')+'</td><td>'+esc(lat)+'</td></tr>';
+});
+html+='</tbody></table></div>';
+});
+}
+
+$('warp-network').innerHTML=html;
+}
+
+// ── DNS view ─────────────────────────────────────────────────────────
+function renderWarpDns(warp){
+const dns=warp?.network?.dns||{};
+let html='<h3 style="font-size:16px;font-weight:600;margin-bottom:16px">DNS Configuration</h3>';
+html+='<div class="warp-grid">';
+
+html+='<div class="warp-card"><h4>Resolver Settings</h4>';
+html+=kv('Protocol',dns.protocol||'default');
+if(dns.domain)html+=kv('Domain',dns.domain);
+if(dns.nameservers&&dns.nameservers.length){
+dns.nameservers.forEach((ns,i)=>html+=kv('Nameserver '+(i+1),ns));
+}
+if(dns.search&&dns.search.length){
+html+=kv('Search',dns.search.join(', '));
+}
+html+='</div>';
+
+if(dns.tests&&dns.tests.length){
+const failed=dns.tests.filter(t=>/fail|timeout|nxdomain|servfail|refused/i.test(t.result||'')).length;
+html+='<div class="warp-card"><h4>DNS Tests <span class="hcount">'+failed+' / '+dns.tests.length+' failed</span></h4>';
+dns.tests.slice(0,20).forEach(t=>{
+const isFail=/fail|timeout|nxdomain|servfail|refused/i.test(t.result||'');
+const val=t.result||(t.answers?t.answers.join(', '):'');
+html+=kv((t.query||t.target||'query')+(t.type?' ('+t.type+')':''),val,isFail?'v-err':'v-ok');
+});
+html+='</div>';
+}
+
+html+='</div>';
+
+if((!dns.nameservers||!dns.nameservers.length)&&(!dns.tests||!dns.tests.length)){
+html+='<div class="warp-empty"><h4>No DNS data</h4><p>No resolv.conf, dns-check.txt, or daemon_dns.log found.</p></div>';
+}
+
+$('warp-dns').innerHTML=html;
+}
+
+// ── Account view ─────────────────────────────────────────────────────
+function renderWarpAccount(warp){
+const a=warp?.account||{};
+let html='<h3 style="font-size:16px;font-weight:600;margin-bottom:16px">Account & Identity</h3>';
+const keys=Object.keys(a);
+if(keys.length===0){
+html+='<div class="warp-empty"><h4>No account data</h4><p>warp-account.txt not found or empty.</p></div>';
+}else{
+html+='<div class="warp-card">';
+keys.forEach(k=>html+=kv(humanize(k),a[k]));
+html+='</div>';
+}
+$('warp-account').innerHTML=html;
+}
+
+function humanize(k){return k.replace(/([A-Z])/g,' $1').replace(/^./,c=>c.toUpperCase()).trim()}
+
+// ── Posture view ─────────────────────────────────────────────────────
+function renderWarpPosture(warp){
+const posture=warp?.posture||{};
+const checks=posture.checks||[];
+let html='<h3 style="font-size:16px;font-weight:600;margin-bottom:16px">Device Posture</h3>';
+if(checks.length===0){
+html+='<div class="warp-empty"><h4>No posture data</h4><p>warp-device-posture.txt not found.</p></div>';
+}else{
+const passed=checks.filter(c=>c.passed).length;
+const failed=checks.length-passed;
+html+='<div class="warp-hero"><div class="warp-hero-card healthy"><h5>Passed</h5><div class="big">'+passed+'</div></div>';
+html+='<div class="warp-hero-card '+(failed?'critical':'healthy')+'"><h5>Failed</h5><div class="big">'+failed+'</div></div>';
+html+='<div class="warp-hero-card"><h5>Total Checks</h5><div class="big">'+checks.length+'</div></div></div>';
+
+html+='<div class="warp-card"><h4>Check Details</h4>';
+checks.forEach(c=>{
+html+='<div class="posture-item">';
+html+='<div class="picon '+(c.passed?'pass':'fail')+'">'+(c.passed?'\u2713':'\u2716')+'</div>';
+html+='<div class="pname">'+esc(c.name||'Unnamed check')+'</div>';
+html+='<span style="font-size:11px;color:var(--text3);font-family:var(--mono)">'+esc(c.status||(c.passed?'pass':'fail'))+'</span>';
+html+='</div>';
+});
+html+='</div>';
+}
+$('warp-posture').innerHTML=html;
+}
+
+// ── Settings & MDM view ──────────────────────────────────────────────
+function renderWarpSettings(warp,warpAI){
+const s=warp?.settings||{};
+const mdm=warp?.mdm;
+let html='<h3 style="font-size:16px;font-weight:600;margin-bottom:16px">Settings & MDM</h3>';
+html+='<div class="warp-grid">';
+
+// Split tunnel
+if(s.splitTunnel){
+const st=s.splitTunnel;
+html+='<div class="warp-card" style="grid-column:1/-1"><h4>Split Tunnel <span class="hcount">mode: '+esc(st.mode||'none')+'</span></h4>';
+if(st.include&&st.include.length){
+html+='<div style="margin-bottom:10px"><strong style="font-size:11px;color:var(--text2)">INCLUDE ('+st.include.length+'):</strong><ul style="margin:6px 0 0 20px;font-family:var(--mono);font-size:11px">';
+st.include.slice(0,20).forEach(x=>html+='<li>'+esc(typeof x==='string'?x:JSON.stringify(x))+'</li>');
+html+='</ul></div>';
+}
+if(st.exclude&&st.exclude.length){
+html+='<div><strong style="font-size:11px;color:var(--text2)">EXCLUDE ('+st.exclude.length+'):</strong><ul style="margin:6px 0 0 20px;font-family:var(--mono);font-size:11px">';
+st.exclude.slice(0,20).forEach(x=>html+='<li>'+esc(typeof x==='string'?x:JSON.stringify(x))+'</li>');
+html+='</ul></div>';
+}
+html+='</div>';
+}
+
+// General settings
+const settingKeys=Object.keys(s).filter(k=>k!=='splitTunnel');
+if(settingKeys.length){
+html+='<div class="warp-card"><h4>WARP Settings</h4>';
+settingKeys.forEach(k=>{
+let v=s[k];
+if(typeof v==='object')v=JSON.stringify(v);
+html+=kv(humanize(k),String(v).substring(0,200));
+});
+html+='</div>';
+}
+
+// MDM
+if(mdm){
+html+='<div class="warp-card"><h4>MDM Configuration</h4>';
+if(typeof mdm==='object'){
+Object.keys(mdm).slice(0,30).forEach(k=>{
+let v=mdm[k];
+if(typeof v==='object')v=JSON.stringify(v);
+html+=kv(humanize(k),String(v).substring(0,200));
+});
+}else{
+html+='<pre style="font-size:11px;font-family:var(--mono);white-space:pre-wrap;max-height:400px;overflow:auto">'+esc(String(mdm))+'</pre>';
+}
+html+='</div>';
+}
+
+html+='</div>';
+
+if(settingKeys.length===0&&!s.splitTunnel&&!mdm){
+html+='<div class="warp-empty"><h4>No settings data</h4><p>warp-settings.txt or MDM files not found.</p></div>';
+}
+
+$('warp-settings').innerHTML=html;
+}
+
+// ── Files view ───────────────────────────────────────────────────────
+function renderWarpFiles(files){
+if(!files||files.length===0){
+$('warp-files').innerHTML='<div class="warp-empty"><h4>No files</h4></div>';
+return;
+}
+let html='<h3 style="font-size:16px;font-weight:600;margin-bottom:16px">All Files <span style="color:var(--text3);font-weight:400;font-size:13px;margin-left:8px">'+files.length+' file(s)</span></h3>';
+html+='<table class="filelist-table"><thead><tr><th>Filename</th><th>Category</th><th>Priority</th><th style="text-align:right">Size</th></tr></thead><tbody>';
+files.sort((a,b)=>a.filename.localeCompare(b.filename));
+files.forEach(f=>{
+html+='<tr class="clickable" data-view-log="'+esc(f.filename)+'">';
+html+='<td>'+esc(f.filename)+'</td>';
+html+='<td><span class="cat '+esc(f.category||'other')+'">'+esc(f.category||'other')+'</span></td>';
+html+='<td>'+esc(f.priority||'')+'</td>';
+html+='<td style="text-align:right">'+fmtBytes(f.size||f.content?.length||0)+'</td>';
+html+='</tr>';
 });
 html+='</tbody></table>';
-}
-if(warpAI?.configuration_review){
-const cr=warpAI.configuration_review;
-html+='<h3 style="margin-top:20px">Configuration Review</h3>';
-html+='<div class="stat-card">';
-if(cr.warp_mode)html+='<div class="stat-row"><span class="label">WARP Mode</span><span class="value">'+esc(cr.warp_mode)+'</span></div>';
-if(cr.split_tunnel)html+='<div class="stat-row"><span class="label">Split Tunnel</span><span class="value">'+esc(cr.split_tunnel)+'</span></div>';
-if(cr.dns_settings)html+='<div class="stat-row"><span class="label">DNS Settings</span><span class="value">'+esc(cr.dns_settings)+'</span></div>';
-if(cr.certificate_status)html+='<div class="stat-row"><span class="label">Certificate</span><span class="value">'+esc(cr.certificate_status)+'</span></div>';
-html+='</div>';
-}
-html+='</div>';
-warpContent.innerHTML=html;
+$('warp-files').innerHTML=html;
+
+// Click row to open in log viewer
+$('warp-files').querySelectorAll('[data-view-log]').forEach(tr=>{
+tr.onclick=()=>{
+const fn=tr.dataset.viewLog;
+document.querySelectorAll('.warp-nav-item').forEach(n=>n.classList.remove('active'));
+document.querySelectorAll('.warp-view').forEach(v=>v.classList.remove('active'));
+document.querySelector('[data-warp-view="logs"]').classList.add('active');
+$('warp-logs').classList.add('active');
+warpLogState.currentFile=fn;
+renderWarpLogs(files);
+};
+});
 }
 
 // ── Navigation ──────────────────────────────────────────────────────
@@ -1481,7 +2297,7 @@ $('analysis-screen').classList.remove('active');
 $('upload-screen').classList.add('active');
 $('btnBack').classList.add('hidden');
 exportSelect.classList.add('hidden');
-state={packets:[],flows:{},stats:{},ai:null,sessionId:null,selectedPkt:null,filteredPackets:null,allPackets:[]};
+state={packets:[],flows:{},stats:{},ai:null,sessionId:null,warpFiles:null,warp:null,selectedIdx:-1,filteredPackets:null,allPackets:[],sortBy:null,sortDir:'asc',timeFormat:'relative'};
 files=[];fileInput.value='';fileListEl.classList.add('hidden');analyzeBtn.disabled=true;
 progressEl.classList.remove('active');
 loadSessions();
@@ -1530,18 +2346,21 @@ el.onclick=()=>openSession(el.dataset.id);
 
 async function openSession(id){
 try{
-const [metaR,pktR,flowR,statR,aiR]=await Promise.all([
+const [metaR,pktR,flowR,statR,aiR,warpR]=await Promise.all([
 fetch(API+'/api/sessions/'+id),
 fetch(API+'/api/sessions/'+id+'/packets?page=0'),
 fetch(API+'/api/sessions/'+id+'/flows'),
 fetch(API+'/api/sessions/'+id+'/stats'),
 fetch(API+'/api/sessions/'+id+'/ai'),
+fetch(API+'/api/sessions/'+id+'/warp'),
 ]);
 const meta=await metaR.json();
 const pktData=await pktR.json();
 const flowData=await flowR.json();
 const statData=await statR.json();
 const aiData=await aiR.json();
+const warpData=await warpR.json();
+const warpPayload=warpData.warp||{};
 
 loadResults({
 sessionId:id,
@@ -1553,7 +2372,8 @@ stats:statData.stats||{},
 warnings:meta.warnings||[]
 },
 ai:aiData.ai,
-warpFiles:meta.hasWarpDiagnostics?[{filename:'(from session)',category:'mixed',priority:'high'}]:[],
+warpFiles:warpPayload.files||(meta.hasWarpDiagnostics?[]:undefined),
+warp:warpPayload.snapshot||null,
 });
 }catch(e){toast('error','Failed to open session: '+e.message)}
 }
