@@ -219,6 +219,7 @@ async function handleRequest(request, env, ctx) {
 // ── Analysis handler ───────────────────────────────────────────────────────────
 
 async function handleAnalyze(request, env, ctx, userEmail) {
+	console.log('[analyze] START - user:', userEmail);
 	const contentType = request.headers.get('content-type') || '';
 	if (!contentType.includes('multipart/form-data')) {
 		return err('Content-Type must be multipart/form-data');
@@ -227,6 +228,7 @@ async function handleAnalyze(request, env, ctx, userEmail) {
 	if (!env.AI) return err('AI binding not configured', 500);
 
 	try {
+		console.log('[analyze] Parsing form data...');
 		const formData = await request.formData();
 		const files = [];
 
@@ -235,6 +237,8 @@ async function handleAnalyze(request, env, ctx, userEmail) {
 				files.push({ name: value.name, data: await value.arrayBuffer(), type: value.type });
 			}
 		}
+
+		console.log(`[analyze] ${files.length} file(s) received:`, files.map(f => `${f.name} (${f.data.byteLength} bytes)`));
 
 		if (files.length === 0) return err('No files uploaded');
 
@@ -248,26 +252,34 @@ async function handleAnalyze(request, env, ctx, userEmail) {
 		for (const file of files) {
 			if (file.name.endsWith('.zip') || file.type === 'application/zip') {
 				fileType = 'warp-diag';
+				console.log('[analyze] Extracting ZIP...');
 				const extracted = extractZipFiles(file.data);
+				console.log(`[analyze] ZIP extracted: ${extracted.size} files`);
 
 				for (const [filename, data] of extracted) {
 					if (isPcapFile(filename)) {
+						console.log(`[analyze] Decoding PCAP: ${filename} (${data.length} bytes)`);
 						const decoded = decodePcapFile(new Uint8Array(data));
+						console.log(`[analyze] PCAP decoded: ${decoded.packets.length} packets`);
 						allPcapDecoded.push({ filename, ...decoded });
 					} else {
-						try {
-							const content = parseTextFile(data);
+					try {
+							const fullContent = parseTextFile(data);
+							// Cap per-file content to 8KB to limit memory usage on large ZIPs
+							const content = fullContent.length > 8192 ? fullContent.substring(0, 8192) + '\n...[truncated]' : fullContent;
 							const cat = categorizeWarpFile(filename);
 							const keyInfo = extractKeyInfo(filename, content);
 							allLogFiles.push({ filename, content, category: cat.category, priority: cat.priority, keyInfo });
 						} catch (e) {
 							console.warn(`Failed to parse ${filename}:`, e.message);
 						}
-					}
 				}
-			} else if (isPcapFile(file.name)) {
+			}
+		} else if (isPcapFile(file.name)) {
 				fileType = 'pcap';
+				console.log(`[analyze] Decoding standalone PCAP: ${file.name} (${file.data.byteLength} bytes)`);
 				const decoded = decodePcapFile(new Uint8Array(file.data));
+				console.log(`[analyze] PCAP decoded: ${decoded.packets.length} packets`);
 				allPcapDecoded.push({ filename: file.name, ...decoded });
 			} else {
 				fileType = fileType === 'unknown' ? 'log' : fileType;
@@ -281,6 +293,8 @@ async function handleAnalyze(request, env, ctx, userEmail) {
 				}
 			}
 		}
+
+		console.log(`[analyze] Processing complete: ${allLogFiles.length} logs, ${allPcapDecoded.length} PCAPs`);
 
 		if (allLogFiles.length === 0 && allPcapDecoded.length === 0) {
 			return err('No valid files found in upload');
@@ -320,7 +334,9 @@ async function handleAnalyze(request, env, ctx, userEmail) {
 		}
 
 		// ── Run AI analysis ────────────────────────────────────────────────────
+		console.log('[analyze] Starting AI analysis...');
 		const aiResult = await runAIAnalysis(env.AI, pcapResult, allLogFiles);
+		console.log('[analyze] AI complete, success:', aiResult.success);
 
 		// ── Create session in background (don't block response) ────────────────
 		let sessionId = null;
@@ -360,12 +376,22 @@ async function handleAnalyze(request, env, ctx, userEmail) {
 		};
 
 		if (pcapResult) {
+			// Cap inline packets and strip rawBytes to keep response size manageable
+			const INLINE_LIMIT = 500;
+			const inlinePackets = pcapResult.packets.slice(0, INLINE_LIMIT).map(pkt => {
+				const { rawBytes, ...rest } = pkt;
+				// Only include rawBytes for first 200 packets (hex dump)
+				if (pkt.number <= 200) {
+					return { ...rest, rawBytes };
+				}
+				return rest;
+			});
+
 			response.pcap = {
 				metadata: pcapResult.metadata,
 				stats: pcapResult.stats,
 				totalPackets: pcapResult.packets.length,
-				// Include first page of packets inline for immediate rendering
-				packets: pcapResult.packets.slice(0, PACKETS_PER_CHUNK),
+				packets: inlinePackets,
 				flows: pcapResult.flows,
 				warnings: pcapResult.warnings,
 			};
@@ -382,10 +408,11 @@ async function handleAnalyze(request, env, ctx, userEmail) {
 			}));
 		}
 
+		console.log('[analyze] Sending response, sessionId:', sessionId);
 		return json(response);
 
 	} catch (error) {
-		console.error('Analysis error:', error);
+		console.error('[analyze] CAUGHT ERROR:', error.message, error.stack);
 		return err(`Analysis failed: ${error.message}`, 500);
 	}
 }

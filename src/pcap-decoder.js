@@ -89,10 +89,10 @@ const DHCP_MESSAGE_TYPES = {
 	5: 'ACK', 6: 'NAK', 7: 'Release', 8: 'Inform',
 };
 
-// File size thresholds
+// File size thresholds — tuned for 128MB Worker memory + 30s CPU
 const LARGE_FILE_THRESHOLD = 5 * 1024 * 1024;  // 5MB
-const MAX_PACKETS_DEFAULT = 10000;
-const MAX_PACKETS_LARGE = 50000;
+const MAX_PACKETS_DEFAULT = 2000;               // Reduced from 10K — each decoded packet is ~2-5KB in memory
+const MAX_PACKETS_LARGE = 5000;                 // Reduced from 50K — prevents OOM on large captures
 
 // ── Main decoder ───────────────────────────────────────────────────────────────
 
@@ -305,8 +305,8 @@ function decodePacket(num, timestamp, rawBytes, capLen, origLen, linkType, view,
 		protocol: 'Unknown',
 		info: '',
 		flowId: '',
-		rawHex: bytesToHex(rawBytes),
-		rawAscii: bytesToAscii(rawBytes),
+		// rawHex is generated lazily by the UI from rawBytes to save memory
+		rawBytes: Array.from(rawBytes),
 		warnings: [],
 	};
 

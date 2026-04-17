@@ -630,11 +630,22 @@ return html;
 
 // ── Hex dump ────────────────────────────────────────────────────────
 function renderHexDump(pkt){
-const lines=pkt.rawHex||[];
-if(!lines.length){hexDump.innerHTML='<div class="empty-state">No hex data</div>';return}
+const raw=pkt.rawBytes||[];
+if(!raw.length){hexDump.innerHTML='<div class="empty-state">No hex data</div>';return}
 let html='';
-for(const line of lines){
-html+='<div class="hex-line"><span class="hex-offset">'+line.offset+'</span><span class="hex-bytes">'+esc(line.hex)+'</span><span class="hex-ascii">'+esc(line.ascii)+'</span></div>';
+for(let i=0;i<raw.length;i+=16){
+const offset=i.toString(16).padStart(4,'0');
+const hexParts=[];
+for(let j=0;j<16;j++){
+if(i+j<raw.length)hexParts.push(raw[i+j].toString(16).padStart(2,'0'));
+else hexParts.push('  ');
+}
+const hexStr=hexParts.slice(0,8).join(' ')+'  '+hexParts.slice(8).join(' ');
+let ascii='';
+for(let j=0;j<16&&i+j<raw.length;j++){
+const b=raw[i+j];ascii+=(b>=32&&b<127)?String.fromCharCode(b):'.';
+}
+html+='<div class="hex-line"><span class="hex-offset">'+offset+'</span><span class="hex-bytes">'+esc(hexStr)+'</span><span class="hex-ascii">'+esc(ascii)+'</span></div>';
 }
 hexDump.innerHTML=html;
 }
