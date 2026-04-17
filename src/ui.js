@@ -1911,7 +1911,7 @@ filterInp.oninput=()=>{warpLogState.filter=filterInp.value;renderLogContent(logF
 $('warpLogSev').onchange=e=>{warpLogState.severityFilter=e.target.value;renderLogContent(logFiles,warpLogState.currentFile)};
 $('btnLogCopy').onclick=()=>{
 const body=$('warpLogBody');
-const txt=[...body.querySelectorAll('.log-line:not([style*="none"])')].map(l=>l.querySelector('.ln-txt')?.textContent||'').join('\n');
+const txt=[...body.querySelectorAll('.log-line:not([style*="none"])')].map(l=>l.querySelector('.ln-txt')?.textContent||'').join('\\n');
 copyText(txt);
 };
 $('btnLogDownload').onclick=()=>{
@@ -1930,7 +1930,7 @@ const body=$('warpLogBody');
 const countEl=$('warpLogCount');
 if(!f||!body){if(body)body.innerHTML='<div class="warp-empty"><p>Select a file</p></div>';return}
 
-const lines=f.content.split('\n');
+const lines=f.content.split('\\n');
 const filter=warpLogState.filter||'';
 const sevFilter=warpLogState.severityFilter||'all';
 
