@@ -13,7 +13,9 @@ export const UI_HTML = `<!DOCTYPE html>
 <style>
 /* ── Reset & Base ─────────────────────────────────────────────────────── */
 *{margin:0;padding:0;box-sizing:border-box}
-:root{
+
+/* Dark theme (default) */
+:root,[data-theme="dark"]{
 --bg:#0d1117;--bg2:#161b22;--bg3:#1c2128;--bg4:#21262d;
 --border:#30363d;--border2:#484f58;
 --text:#e6edf3;--text2:#8b949e;--text3:#6e7681;
@@ -22,7 +24,31 @@ export const UI_HTML = `<!DOCTYPE html>
 --cyan:#39d2c0;--pink:#f778ba;
 --font:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
 --mono:'JetBrains Mono',Monaco,Menlo,'Ubuntu Mono',monospace;
+--shadow:0 1px 3px rgba(0,0,0,.4);
+--hex-bg:#0d1117;
 }
+
+/* Light theme */
+[data-theme="light"]{
+--bg:#ffffff;--bg2:#f6f8fa;--bg3:#eef1f5;--bg4:#d8dee4;
+--border:#d0d7de;--border2:#afb8c1;
+--text:#1f2328;--text2:#57606a;--text3:#8b949e;
+--orange:#d35400;--orange2:#bf4b00;
+--green:#1a7f37;--red:#cf222e;--yellow:#9a6700;--blue:#0969da;--purple:#8250df;
+--cyan:#0e7c6b;--pink:#bf3989;
+--shadow:0 1px 3px rgba(0,0,0,.1);
+--hex-bg:#f6f8fa;
+}
+[data-theme="light"] .pkt-table tr.proto-tcp{color:#0550ae}
+[data-theme="light"] .pkt-table tr.proto-udp{color:#0e6e6b}
+[data-theme="light"] .pkt-table tr.proto-dns{color:#0969da}
+[data-theme="light"] .pkt-table tr.proto-tls,[data-theme="light"] .pkt-table tr.proto-https{color:#6639ba}
+[data-theme="light"] .pkt-table tr.proto-http{color:#1a7f37}
+[data-theme="light"] .pkt-table tr.proto-icmp{color:#cf222e}
+[data-theme="light"] .pkt-table tr.proto-arp{color:#953800}
+[data-theme="light"] .pkt-table tr.proto-dhcp{color:#6639ba}
+[data-theme="light"] .pkt-table tr.proto-ssh{color:#953800}
+[data-theme="light"] .pkt-table tr.proto-warp{color:#d35400}
 html,body{height:100%;overflow:hidden;font-family:var(--font);background:var(--bg);color:var(--text);font-size:13px}
 a{color:var(--blue);text-decoration:none}
 a:hover{text-decoration:underline}
@@ -199,6 +225,9 @@ select:focus,input:focus{border-color:var(--orange)}
 <h1><span>WARP</span> & PCAP Analyzer</h1>
 <span class="badge badge-info" id="versionBadge">v2.0</span>
 <div class="header-actions">
+<button class="btn btn-ghost btn-sm" id="btnTheme" title="Toggle light/dark theme">
+<span id="themeIcon">&#x2600;&#xFE0F;</span>
+</button>
 <button class="btn btn-ghost btn-sm" id="btnSessions" title="View saved sessions">Sessions</button>
 <select id="exportSelect" class="hidden" style="font-size:11px;padding:4px 8px">
 <option value="">Export...</option>
@@ -1023,7 +1052,24 @@ function esc(s){if(!s)return'';return String(s).replace(/&/g,'&amp;').replace(/<
 function fmtBytes(b){if(!b)return'0 B';const k=1024,s=['B','KB','MB','GB'];const i=Math.floor(Math.log(b)/Math.log(k));return(b/Math.pow(k,i)).toFixed(1)+' '+s[i]}
 function formatRemed(text){if(!text)return'';const s=String(text);const steps=s.split(/(?:^|\\s)(\\d+)\\.\\s+/).filter(Boolean);if(steps.length>2){let ol='<ol>';for(let i=0;i<steps.length;i+=2){const t=steps[i+1]||steps[i];if(t&&!/^\\d+$/.test(t.trim()))ol+='<li>'+esc(t.trim())+'</li>'}return ol+'</ol>'}return'<p style="margin-top:6px">'+esc(s)+'</p>'}
 
+// ── Theme toggle ────────────────────────────────────────────────────
+function initTheme(){
+const saved=localStorage.getItem('wpa-theme');
+const theme=saved||(window.matchMedia('(prefers-color-scheme:light)').matches?'light':'dark');
+applyTheme(theme);
+}
+function applyTheme(theme){
+document.documentElement.setAttribute('data-theme',theme);
+localStorage.setItem('wpa-theme',theme);
+$('themeIcon').textContent=theme==='dark'?'\\u2600\\uFE0F':'\\u{1F319}';
+}
+$('btnTheme').onclick=()=>{
+const current=document.documentElement.getAttribute('data-theme')||'dark';
+applyTheme(current==='dark'?'light':'dark');
+};
+
 // ── Init ────────────────────────────────────────────────────────────
+initTheme();
 loadSessions();
 })();
 </script>

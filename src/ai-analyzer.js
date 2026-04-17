@@ -88,16 +88,19 @@ export async function analyzePcapWithAI(ai, pcapData) {
 	const model = selectModel('pcap_deep', estimatedTokens);
 	const config = MODEL_CONFIG[model];
 
-	const maxContextChars = Math.floor((config.contextWindow - 2000) * 3.5);
-	const truncatedContext = context.length > maxContextChars
-		? context.substring(0, maxContextChars) + '\n\n[Context truncated due to size]'
+	// Hard cap at 30K chars (~8K tokens) to ensure the model returns clean JSON
+	const MAX_CONTEXT_CHARS = 30000;
+	const truncatedContext = context.length > MAX_CONTEXT_CHARS
+		? context.substring(0, MAX_CONTEXT_CHARS) + '\n[truncated]'
 		: context;
 
-	const userPrompt = `Analyse this network capture and provide a comprehensive security and performance assessment.
+	console.log(`[ai] PCAP context: ${context.length} chars → ${truncatedContext.length} sent, est ${estimatedTokens} tokens, model: ${config.label}`);
+
+	const userPrompt = `Analyse this network capture and provide a security and performance assessment.
 
 ${truncatedContext}
 
-Provide your analysis as JSON with this exact structure:
+IMPORTANT: Respond with ONLY valid JSON, no other text. Use this exact structure:
 {
   "summary": "Brief overall assessment of the capture",
   "health_status": "Healthy|Degraded|Critical",
@@ -186,17 +189,17 @@ export async function analyzeWarpDiagnostics(ai, logFiles, pcapMeta) {
 	const model = selectModel('warp_diagnostics', estimatedTokens);
 	const config = MODEL_CONFIG[model];
 
-	const maxContextChars = Math.floor((config.contextWindow - 2000) * 3.5);
-	const truncatedContext = context.length > maxContextChars
-		? context.substring(0, maxContextChars) + '\n\n[Context truncated due to size]'
+	const MAX_CONTEXT_CHARS = 30000;
+	const truncatedContext = context.length > MAX_CONTEXT_CHARS
+		? context.substring(0, MAX_CONTEXT_CHARS) + '\n[truncated]'
 		: context;
 
-	const userPrompt = `Analyse these Cloudflare WARP diagnostic files and provide a comprehensive report.
+	console.log(`[ai] WARP context: ${context.length} chars → ${truncatedContext.length} sent, model: ${config.label}`);
 
-## Files Included
-${logFiles.map(f => `- ${f.filename} (${f.category}, ${f.priority} priority)`).join('\n')}
+	const userPrompt = `Analyse these Cloudflare WARP diagnostic files.
 
-${pcapMeta ? `## Embedded PCAP\n${JSON.stringify(pcapMeta, null, 2)}\n` : ''}
+## Files: ${logFiles.map(f => `${f.filename}(${f.category})`).join(', ')}
+${pcapMeta ? `\nPCAP: ${pcapMeta.packetCount || '?'} packets, ${pcapMeta.format || '?'}` : ''}
 
 ## Diagnostic Content
 ${truncatedContext}
@@ -279,68 +282,60 @@ Provide your analysis as JSON:
 // ── Context builders ───────────────────────────────────────────────────────────
 
 function buildPcapContext(pcapData) {
+	// Keep context compact — the model produces better structured JSON with focused input
+	const s = pcapData.stats || {};
 	const sections = [];
 
-	sections.push(`## Capture Metadata
-Format: ${pcapData.metadata?.format || 'Unknown'}
-Total Packets: ${pcapData.stats?.totalPackets || 0}
-Duration: ${pcapData.stats?.duration?.toFixed(3) || 0}s
-Total Bytes: ${pcapData.stats?.totalBytes || 0}
-Average Packet Size: ${pcapData.stats?.avgPacketSize || 0} bytes`);
+	sections.push(`## Capture: ${s.totalPackets || 0} packets, ${s.totalBytes || 0} bytes, ${(s.duration || 0).toFixed(3)}s, avg ${s.avgPacketSize || 0}B`);
 
-	if (pcapData.stats?.protocols) {
-		sections.push(`## Protocol Distribution
-${Object.entries(pcapData.stats.protocols).sort((a, b) => b[1] - a[1]).map(([p, c]) => `- ${p}: ${c} packets`).join('\n')}`);
+	if (s.protocols) {
+		const top = Object.entries(s.protocols).sort((a, b) => b[1] - a[1]).slice(0, 8);
+		sections.push(`## Protocols: ${top.map(([p, c]) => `${p}:${c}`).join(', ')}`);
 	}
 
-	if (pcapData.stats?.topTalkers) {
-		sections.push(`## Top Talkers (by bytes)
-${Object.entries(pcapData.stats.topTalkers).slice(0, 10).map(([ip, bytes]) => `- ${ip}: ${bytes} bytes`).join('\n')}`);
+	if (s.topTalkers) {
+		sections.push(`## Top Talkers: ${Object.entries(s.topTalkers).slice(0, 5).map(([ip, b]) => `${ip}(${b}B)`).join(', ')}`);
 	}
 
-	if (pcapData.stats?.dnsQueries?.length > 0) {
-		const queries = pcapData.stats.dnsQueries.slice(0, 50);
-		sections.push(`## DNS Queries (${pcapData.stats.dnsQueries.length} total, showing ${queries.length})
-${queries.map(q => `- Packet ${q.packet}: ${q.isResponse ? 'Response' : 'Query'} ${q.type} ${q.query}${q.rcode !== 'No Error' ? ` [${q.rcode}]` : ''}${q.answers.length ? ` → ${q.answers.join(', ')}` : ''}`).join('\n')}`);
+	if (s.dnsQueries?.length > 0) {
+		const errs = s.dnsQueries.filter(q => q.rcode && q.rcode !== 'No Error');
+		const unique = [...new Set(s.dnsQueries.map(q => q.query))].slice(0, 15);
+		sections.push(`## DNS: ${s.dnsQueries.length} queries, ${errs.length} errors. Domains: ${unique.join(', ')}`);
+		if (errs.length) sections.push(`DNS Errors: ${errs.slice(0, 10).map(q => `${q.query}(${q.rcode})`).join(', ')}`);
 	}
 
-	if (pcapData.stats?.tlsConnections?.length > 0) {
-		sections.push(`## TLS Connections
-${pcapData.stats.tlsConnections.slice(0, 30).map(t => `- Packet ${t.packet}: ${t.version} SNI=${t.sni}${t.alpn ? ` ALPN=[${t.alpn.join(',')}]` : ''}`).join('\n')}`);
+	if (s.tlsConnections?.length > 0) {
+		const snis = [...new Set(s.tlsConnections.map(t => t.sni))].slice(0, 10);
+		sections.push(`## TLS: ${s.tlsConnections.length} handshakes. SNIs: ${snis.join(', ')}`);
 	}
 
-	if (pcapData.stats?.httpRequests?.length > 0) {
-		sections.push(`## HTTP Requests
-${pcapData.stats.httpRequests.slice(0, 30).map(r => `- Packet ${r.packet}: ${r.method} ${r.host}${r.uri}`).join('\n')}`);
+	if (s.httpRequests?.length > 0) {
+		sections.push(`## HTTP: ${s.httpRequests.slice(0, 10).map(r => `${r.method} ${r.host}${r.uri}`).join('; ')}`);
 	}
 
-	if (pcapData.stats?.warningsSummary && Object.keys(pcapData.stats.warningsSummary).length > 0) {
-		sections.push(`## Packet Warnings
-${Object.entries(pcapData.stats.warningsSummary).map(([w, c]) => `- ${w}: ${c} occurrences`).join('\n')}`);
+	if (s.warningsSummary && Object.keys(s.warningsSummary).length > 0) {
+		sections.push(`## Warnings: ${Object.entries(s.warningsSummary).map(([w, c]) => `${w}(${c})`).join(', ')}`);
 	}
 
 	if (pcapData.flows) {
-		const flowList = Object.values(pcapData.flows);
-		const topFlows = flowList.sort((a, b) => (b.bytesAtoB + b.bytesBtoA) - (a.bytesAtoB + a.bytesBtoA)).slice(0, 20);
-		sections.push(`## Top Flows (${flowList.length} total, showing ${topFlows.length})
-${topFlows.map(f => `- ${f.id}: ${f.packetsAtoB + f.packetsBtoA} pkts, ${f.bytesAtoB + f.bytesBtoA} bytes, ${f.protocol}${f.appProtocol ? `/${f.appProtocol}` : ''} [${f.tcpState || 'N/A'}]${f.warnings.length ? ` ⚠ ${f.warnings.join(', ')}` : ''}`).join('\n')}`);
+		const fl = Object.values(pcapData.flows);
+		const resets = fl.filter(f => f.tcpState === 'RESET');
+		sections.push(`## Flows: ${fl.length} total, ${resets.length} resets`);
+		const top5 = fl.sort((a, b) => (b.bytesAtoB + b.bytesBtoA) - (a.bytesAtoB + a.bytesBtoA)).slice(0, 5);
+		sections.push(top5.map(f => `${f.srcIP}:${f.srcPort}-${f.dstIP}:${f.dstPort} ${f.protocol}${f.appProtocol ? '/' + f.appProtocol : ''} ${f.packetsAtoB + f.packetsBtoA}pkts [${f.tcpState || '?'}]`).join('\n'));
 	}
 
+	// Only include packets with warnings — they're the most diagnostic
 	if (pcapData.packets) {
-		const sample = [];
-		const warnings = pcapData.packets.filter(p => p.warnings.length > 0).slice(0, 50);
-		const firstN = pcapData.packets.slice(0, Math.min(100, pcapData.packets.length));
-		const seen = new Set();
-		for (const p of [...firstN, ...warnings]) {
-			if (!seen.has(p.number)) { seen.add(p.number); sample.push(p); }
+		const warnPkts = pcapData.packets.filter(p => p.warnings.length > 0).slice(0, 30);
+		const first10 = pcapData.packets.slice(0, 10);
+		const sample = [...first10, ...warnPkts.filter(p => p.number > 10)];
+		if (sample.length > 0) {
+			sections.push(`## Key Packets (${sample.length} of ${pcapData.packets.length}):\n${sample.map(p => `#${p.number} ${p.protocol} ${p.info}${p.warnings.length ? ' [!' + p.warnings.join(';') + ']' : ''}`).join('\n')}`);
 		}
-		sample.sort((a, b) => a.number - b.number);
-
-		sections.push(`## Packet Samples (${sample.length} of ${pcapData.packets.length})
-${sample.map(p => `[Packet ${p.number}] ${p.protocol} | ${p.info}${p.warnings.length ? ` | ⚠ ${p.warnings.join('; ')}` : ''}`).join('\n')}`);
 	}
 
-	return sections.join('\n\n');
+	return sections.join('\n');
 }
 
 function buildWarpContext(logFiles) {
@@ -465,15 +460,48 @@ function parseAIResponse(response) {
 		else if (response.result?.response) text = response.result.response;
 		else if (typeof response === 'string') text = response;
 
-		text = text.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
+		if (!text || !text.trim()) {
+			console.warn('AI returned empty response');
+			return { summary: 'AI returned an empty response. The model may be overloaded.', health_status: 'Unknown', issues: [], timeline: [], recommendations: ['Retry the analysis with a smaller file or try again later'] };
+		}
 
-		const jsonMatch = text.match(/\{[\s\S]*\}/);
-		if (jsonMatch) return JSON.parse(jsonMatch[0]);
+		// Strip markdown fences, thinking tags, and preamble
+		text = text.replace(/```json\s*/gi, '').replace(/```\s*/g, '');
+		text = text.replace(/<think>[\s\S]*?<\/think>/gi, '');
+		text = text.trim();
 
-		return { summary: text, health_status: 'Unknown', issues: [], timeline: [], recommendations: [] };
+		// Try parsing the full text first
+		try { return JSON.parse(text); } catch (e) { /* not pure JSON */ }
+
+		// Find the outermost JSON object (greedy match of first { to last })
+		const firstBrace = text.indexOf('{');
+		const lastBrace = text.lastIndexOf('}');
+		if (firstBrace !== -1 && lastBrace > firstBrace) {
+			const candidate = text.substring(firstBrace, lastBrace + 1);
+			try { return JSON.parse(candidate); } catch (e) { /* malformed JSON */ }
+
+			// Try to fix common JSON issues: trailing commas, unescaped newlines
+			const cleaned = candidate
+				.replace(/,\s*([}\]])/g, '$1')           // trailing commas
+				.replace(/\n/g, '\\n')                     // unescaped newlines in strings
+				.replace(/\t/g, '\\t');                    // unescaped tabs
+			try { return JSON.parse(cleaned); } catch (e) { /* still broken */ }
+		}
+
+		// Last resort: extract what we can from the raw text
+		console.warn('AI response not parseable as JSON, extracting text summary. First 200 chars:', text.substring(0, 200));
+		const summaryText = text.substring(0, 500).replace(/[{}"[\]]/g, '').trim();
+		return {
+			summary: summaryText || 'AI analysis completed but produced non-JSON output',
+			health_status: 'Unknown',
+			issues: [],
+			timeline: [],
+			recommendations: ['The AI model returned a non-standard response. Try re-analyzing or use a smaller capture.'],
+			raw_text: text.substring(0, 2000),
+		};
 	} catch (e) {
-		console.error('AI response parse error:', e);
-		return { summary: 'Analysis completed but response parsing failed', health_status: 'Unknown', issues: [], timeline: [], recommendations: [], raw_response: String(response) };
+		console.error('AI response parse error:', e.message);
+		return { summary: 'AI response parsing error: ' + e.message, health_status: 'Unknown', issues: [], timeline: [], recommendations: [] };
 	}
 }
 
