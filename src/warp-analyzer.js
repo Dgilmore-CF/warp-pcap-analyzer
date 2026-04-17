@@ -73,9 +73,10 @@ export function analyzeWarpBundle(files) {
 		timeline: [],
 		files: [],
 		findings: [],
+		rawProperties: {}, // flat map of ALL parsed key→value pairs across all files
 	};
 
-	// Parse each file into the snapshot
+	// Pass 1 — file-type specific parsers
 	for (const file of files) {
 		const meta = { filename: file.filename, category: file.category, priority: file.priority, size: file.content.length };
 		snapshot.files.push(meta);
@@ -87,6 +88,14 @@ export function analyzeWarpBundle(files) {
 		}
 	}
 
+	// Pass 2 — universal key-value extraction from EVERY file.
+	// Populates snapshot.rawProperties so the dashboard can find fields
+	// regardless of which file they originated in.
+	extractUniversalKeyValues(files, snapshot);
+
+	// Pass 3 — fill in gaps using the flat property map
+	fillGapsFromRaw(snapshot);
+
 	// Sort timeline by timestamp
 	snapshot.timeline.sort((a, b) => (a.parsedTs || 0) - (b.parsedTs || 0));
 
@@ -97,6 +106,94 @@ export function analyzeWarpBundle(files) {
 	snapshot.health = computeHealth(snapshot.findings);
 
 	return snapshot;
+}
+
+// Scan every file for "key: value" or "key = value" pairs and build a flat map.
+// Accepts multiple separators: : = → |
+// Keys are lowercased and normalised (underscores, spaces collapsed).
+function extractUniversalKeyValues(files, snap) {
+	const props = snap.rawProperties;
+	for (const file of files) {
+		// Skip binary-ish files
+		if (!file.content || file.content.length === 0) continue;
+		// Skip very large logs for this pass to save CPU
+		const maxBytes = 64 * 1024;
+		const text = file.content.length > maxBytes ? file.content.substring(0, maxBytes) : file.content;
+
+		const lines = text.split('\n');
+		for (const line of lines) {
+			// Match "key: value" or "key = value" or "key -> value"
+			// Require key to not contain too many weird chars
+			const m = line.match(/^\s*([A-Za-z][A-Za-z0-9 _\-./]{0,60})\s*[:=]\s+(.+?)\s*$/);
+			if (!m) continue;
+			const rawKey = m[1].trim();
+			const val = m[2].trim();
+			if (!val || val.length > 500) continue;
+			// Skip keys that look like markup
+			if (rawKey.length < 2) continue;
+			const key = rawKey.toLowerCase().replace(/[\s\-/]+/g, '_');
+			// First occurrence wins unless existing is empty
+			if (!props[key] || props[key] === '-' || props[key] === 'unknown') {
+				props[key] = val;
+			}
+			// Also track multi-value under the original key
+			if (!props.__sources) props.__sources = {};
+			if (!props.__sources[key]) props.__sources[key] = file.filename;
+		}
+	}
+}
+
+// Fill empty snapshot fields from the rawProperties map using many possible key names.
+function fillGapsFromRaw(snap) {
+	const p = snap.rawProperties;
+	const c = snap.connection;
+	const a = snap.account;
+	const d = snap.device;
+	const dns = snap.network.dns;
+
+	const tryKeys = (keys) => {
+		for (const k of keys) {
+			const v = p[k];
+			if (v && v !== '-' && v.toLowerCase() !== 'unknown') return v;
+		}
+		return null;
+	};
+
+	c.status = c.status || tryKeys(['status', 'warp_status', 'connection_status', 'warp_connection_status', 'status_update', 'tunnel_state', 'state']);
+	c.mode = c.mode || tryKeys(['mode', 'warp_mode', 'current_mode', 'operation_mode']);
+	c.warpVersion = c.warpVersion || tryKeys(['version', 'warp_version', 'client_version', 'build', 'app_version']);
+	c.accountType = c.accountType || tryKeys(['account_type', 'accounttype', 'license']);
+	c.colo = c.colo || tryKeys(['colo', 'edge_location', 'pop', 'datacenter', 'data_center']);
+	c.endpoint = c.endpoint || tryKeys(['endpoint', 'warp_endpoint', 'gateway_endpoint', 'server']);
+	c.myIp = c.myIp || tryKeys(['my_ip', 'public_ip', 'external_ip', 'your_ip', 'current_ip']);
+	c.gatewayIp = c.gatewayIp || tryKeys(['gateway_ip', 'gateway', 'default_gateway']);
+	c.alwaysOn = c.alwaysOn || tryKeys(['always_on', 'alwayson']);
+	c.switchLocked = c.switchLocked || tryKeys(['switch_locked', 'switchlocked']);
+
+	a.team = a.team || tryKeys(['team', 'team_name', 'organization', 'organisation', 'org']);
+	a.accountId = a.accountId || tryKeys(['account_id', 'accountid', 'registered_account_id']);
+	a.deviceId = a.deviceId || tryKeys(['device_id', 'deviceid']);
+	a.user = a.user || tryKeys(['user', 'email', 'user_email', 'user_id']);
+	a.registration = a.registration || tryKeys(['registration', 'registered', 'registration_status']);
+	a.publicKey = a.publicKey || tryKeys(['public_key', 'publickey']);
+	a.license = a.license || tryKeys(['license', 'license_type']);
+	a.organization = a.organization || tryKeys(['organization', 'organisation', 'org']);
+
+	d.platform = d.platform || tryKeys(['platform', 'os', 'operating_system', 'os_name']);
+	d.captureTime = d.captureTime || tryKeys(['capture_time', 'date', 'timestamp', 'diag_time']);
+
+	dns.protocol = dns.protocol || tryKeys(['dns_protocol', 'dns_over_https', 'dns_over_tls', 'dns_mode', 'doh', 'dot']);
+
+	// Scan for IP patterns in all log content if still missing IPs
+	if (!c.myIp || !c.gatewayIp) {
+		for (const [key, val] of Object.entries(p)) {
+			if (typeof val !== 'string') continue;
+			const ipMatch = val.match(/\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b/);
+			if (!ipMatch) continue;
+			if (!c.myIp && /my_ip|public_ip|external|current/i.test(key)) c.myIp = ipMatch[1];
+			if (!c.gatewayIp && /gateway/i.test(key)) c.gatewayIp = ipMatch[1];
+		}
+	}
 }
 
 // ── File-type specific parsers ─────────────────────────────────────────────────
@@ -151,36 +248,89 @@ function parseFileIntoSnapshot(file, snap) {
 
 function parseWarpStatus(content, snap) {
 	const c = snap.connection;
-	for (const line of content.split('\n')) {
-		const m = line.match(/^([^:]+):\s*(.+)$/);
+	// Try JSON first (newer clients sometimes output JSON)
+	const trimmed = content.trim();
+	if (trimmed.startsWith('{')) {
+		try {
+			const json = JSON.parse(trimmed);
+			if (json.status) c.status = String(json.status);
+			if (json.mode) c.mode = String(json.mode);
+			if (json.account) c.accountType = String(json.account);
+			if (json.team) snap.account.team = String(json.team);
+			return;
+		} catch { /* fall through */ }
+	}
+
+	// First non-empty non-separator line is often the status
+	const lines = content.split('\n').map(l => l.trim()).filter(l => l && !/^[=\-*]+$/.test(l));
+	if (lines.length > 0 && !c.status) {
+		// "Status update: Connected" or "Connected" on first line
+		const first = lines[0];
+		const statusKeywords = ['connected', 'disconnected', 'connecting', 'disabled', 'registering', 'paused'];
+		for (const kw of statusKeywords) {
+			if (first.toLowerCase().includes(kw)) {
+				c.status = kw[0].toUpperCase() + kw.slice(1);
+				break;
+			}
+		}
+	}
+
+	// Parse all lines as flexible key:value or key = value
+	for (const line of lines) {
+		const m = line.match(/^([^:=]+?)\s*[:=]\s*(.+)$/);
 		if (!m) continue;
 		const key = m[1].trim().toLowerCase();
 		const val = m[2].trim();
-		if (key === 'status') c.status = val;
-		else if (key === 'mode') c.mode = val;
-		else if (key === 'account' || key === 'account type') c.accountType = val;
-		else if (key === 'team') snap.account.team = val;
-		else if (key.includes('always on')) c.alwaysOn = val;
-		else if (key.includes('switch locked')) c.switchLocked = val;
-		else if (key.includes('dns protocol') || key.includes('dns over')) snap.network.dns.protocol = val;
+		if (!val) continue;
+
+		if (key === 'status' || key === 'warp status' || key === 'connection status' || key === 'status update' || key === 'warp connection status') c.status = val;
+		else if (key === 'mode' || key === 'warp mode' || key === 'operation mode') c.mode = val;
+		else if (key === 'account' || key === 'account type' || key === 'accounttype') c.accountType = val;
+		else if (key === 'team' || key === 'team name') snap.account.team = val;
+		else if (key === 'registered account id' || key === 'account id') snap.account.accountId = val;
+		else if (key.includes('always') && key.includes('on')) c.alwaysOn = val;
+		else if (key.includes('switch') && key.includes('lock')) c.switchLocked = val;
+		else if (key.includes('dns protocol') || key.includes('dns over') || key === 'dns mode') snap.network.dns.protocol = val;
+		else if (key === 'warp+' || key === 'warp plus') c.warpPlus = val;
+		else if (key === 'posture' || key === 'device posture') c.postureStatus = val;
+		else if (key === 'dex' || key === 'digital experience monitoring') c.dex = val;
+		else if (key === 'location') c.location = val;
+		else if (key === 'device id') snap.account.deviceId = val;
+		else if (key === 'id' || key === 'registered id') snap.account.id = val;
+		else if (key === 'version' || key === 'client version' || key === 'warp version') c.warpVersion = val;
+		else if (key === 'organization' || key === 'organisation') snap.account.organization = val;
 	}
 }
 
 function parseWarpAccount(content, snap) {
 	const a = snap.account;
+	// Try JSON first
+	const trimmed = content.trim();
+	if (trimmed.startsWith('{')) {
+		try {
+			const json = JSON.parse(trimmed);
+			Object.assign(a, json);
+			return;
+		} catch { /* fall through */ }
+	}
+
 	for (const line of content.split('\n')) {
-		const m = line.match(/^([^:]+):\s*(.+)$/);
+		const m = line.match(/^([^:=]+?)\s*[:=]\s*(.+)$/);
 		if (!m) continue;
 		const key = m[1].trim().toLowerCase();
 		const val = m[2].trim();
-		if (key.includes('team')) a.team = val;
-		else if (key.includes('account id')) a.accountId = val;
-		else if (key.includes('registration') || key.includes('registered')) a.registration = val;
-		else if (key.includes('device id')) a.deviceId = val;
-		else if (key.includes('public key')) a.publicKey = val;
-		else if (key.includes('user id') || key.includes('email')) a.user = val;
-		else if (key.includes('license')) a.license = val;
-		else if (key.includes('organization')) a.organization = val;
+		if (!val) continue;
+
+		if (key === 'team' || key === 'team name' || key.includes('team')) a.team = val;
+		else if (key === 'account id' || key === 'accountid' || key === 'registered account id') a.accountId = val;
+		else if (key === 'registration' || key === 'registered' || key === 'registration status') a.registration = val;
+		else if (key === 'device id' || key === 'deviceid') a.deviceId = val;
+		else if (key === 'public key' || key === 'publickey') a.publicKey = val;
+		else if (key === 'user id' || key === 'email' || key === 'user email' || key === 'user') a.user = val;
+		else if (key === 'license' || key === 'license type' || key === 'account type') a.license = val;
+		else if (key === 'organization' || key === 'organisation' || key === 'org') a.organization = val;
+		else if (key === 'id' || key === 'registered id') a.id = val;
+		else if (key === 'role' || key === 'user role') a.role = val;
 	}
 }
 
@@ -215,26 +365,49 @@ function parseConnectivity(content, snap) {
 	const tests = [];
 
 	for (const line of content.split('\n')) {
-		if (!line.trim()) continue;
-		const lower = line.toLowerCase();
+		const trimmed = line.trim();
+		if (!trimmed) continue;
 
-		// Endpoint / colo
-		const ep = line.match(/endpoint[:\s]+(\S+)/i);
-		if (ep) c.endpoint = ep[1];
-		const colo = line.match(/colo[:\s]+(\S+)/i);
-		if (colo) c.colo = colo[1];
-		const myip = line.match(/\bmy\s*ip[:\s]+([\d.]+)/i);
-		if (myip) c.myIp = myip[1];
-		const gw = line.match(/gateway[:\s]+(\S+)/i);
-		if (gw) c.gatewayIp = gw[1];
+		// Colo / edge location — many possible patterns
+		const coloPatterns = [
+			/colo[:\s=]+([A-Z]{3,4}\d*)/i,
+			/\b([A-Z]{3})\b.*?(?:data\s*cent(?:er|re)|edge|pop)/i,
+			/edge\s*(?:location|pop|cent(?:er|re))[:\s=]+([A-Z]{3,5})/i,
+		];
+		for (const p of coloPatterns) {
+			const m = trimmed.match(p);
+			if (m && !c.colo) { c.colo = m[1].toUpperCase(); break; }
+		}
 
-		// Connectivity test results
-		const test = line.match(/(\S+)\s*[:\-]\s*(reachable|unreachable|ok|fail|failed|success|timeout|passed)/i);
-		if (test) tests.push({ target: test[1], result: test[2] });
+		// Endpoint
+		const epMatch = trimmed.match(/(?:engage|tunnel|endpoint)[:\s=]+(\S+\.cloudflareclient\.com|\S+\.cloudflare\.com|[\d.]+:?\d*)/i) ||
+			trimmed.match(/endpoint[:\s=]+(\S+)/i);
+		if (epMatch && !c.endpoint) c.endpoint = epMatch[1];
 
-		// Latency measurements
-		const lat = line.match(/(\S+).*?(\d+(?:\.\d+)?)\s*ms/i);
-		if (lat && !test) tests.push({ target: lat[1], latencyMs: parseFloat(lat[2]) });
+		// My IP (public)
+		const myipMatch = trimmed.match(/(?:my|public|external|your)\s*ip[:\s=]+([\d.]+)/i) ||
+			trimmed.match(/cf-connecting-ip[:\s=]+([\d.]+)/i);
+		if (myipMatch && !c.myIp) c.myIp = myipMatch[1];
+
+		// Gateway
+		const gwMatch = trimmed.match(/(?:default\s*)?gateway[:\s=]+([\d.]+)/i);
+		if (gwMatch && !c.gatewayIp) c.gatewayIp = gwMatch[1];
+
+		// Connectivity test results — multiple patterns
+		// "https://www.cloudflare.com: reachable"
+		// "[OK] https://www.cloudflare.com"
+		// "PASS: dns lookup"
+		let test = trimmed.match(/^(https?:\/\/\S+|\S+\.\w+)\s*[:\-]\s*(reachable|unreachable|ok|fail|failed|success|passed|timeout)/i);
+		if (!test) test = trimmed.match(/^\[?(OK|PASS|FAIL|ERROR|TIMEOUT|WARN)\]?\s*[:\-]?\s*(.+)$/i);
+		if (test) {
+			const target = test[1].startsWith('http') || /^\w+\.\w/.test(test[1]) ? test[1] : test[2];
+			const result = test[1].startsWith('http') ? test[2] : test[1];
+			tests.push({ target: target.substring(0, 100), result });
+		}
+
+		// Latency measurements like "cloudflare.com: 12.3 ms"
+		const lat = trimmed.match(/(\S+).*?(\d+(?:\.\d+)?)\s*ms\b/i);
+		if (lat && !test) tests.push({ target: lat[1].substring(0, 100), latencyMs: parseFloat(lat[2]) });
 	}
 
 	if (tests.length > 0) c.connectivityTests = tests;

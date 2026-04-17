@@ -1665,34 +1665,60 @@ const c=warp?.connection||{};
 const a=warp?.account||{};
 const d=warp?.device||{};
 const dns=warp?.network?.dns||{};
+const props=warp?.rawProperties||{};
 const health=warp?.health||warpAI?.health_status||'Unknown';
 const findings=warp?.findings||[];
 const warpIface=(warp?.network?.interfaces||[]).find(i=>i.isWarp);
 
-const connectionState=(c.status||'').toLowerCase();
+// Fallback lookup: check structured field first, then rawProperties with many key variations
+const lookup=(struct,keys)=>{
+if(struct&&struct!=='-'&&String(struct).toLowerCase()!=='unknown')return struct;
+for(const k of keys){
+const v=props[k];
+if(v&&v!=='-'&&String(v).toLowerCase()!=='unknown')return v;
+}
+return null;
+};
+
+const status=lookup(c.status,['status','warp_status','connection_status','status_update']);
+const mode=lookup(c.mode,['mode','warp_mode']);
+const version=lookup(c.warpVersion,['version','warp_version','client_version']);
+const platform=lookup(d.platform,['platform','os','os_name']);
+const team=lookup(a.team,['team','team_name','organization']);
+const accountIdent=a.user||a.accountId||a.id||props.user||props.email||props.account_id||props.registered_account_id||'';
+const colo=lookup(c.colo,['colo','edge_location','pop']);
+const endpoint=lookup(c.endpoint,['endpoint','warp_endpoint','server']);
+const myIp=lookup(c.myIp,['my_ip','public_ip','external_ip','your_ip']);
+const gateway=lookup(c.gatewayIp,['gateway_ip','gateway','default_gateway']);
+const dnsProto=lookup(dns.protocol,['dns_protocol','dns_mode']);
+const captureTime=lookup(d.captureTime,['date','timestamp','capture_time']);
+
+const connectionState=(status||'').toLowerCase();
 const healthClass=health.toLowerCase();
 const healthIcon=health==='Healthy'?'\u2713':health==='Degraded'?'\u26A0':health==='Critical'?'\u2716':'?';
-const statusClass=connectionState==='connected'?'healthy':(connectionState==='disconnected'||connectionState==='disabled')?'critical':'degraded';
+const statusClass=connectionState.includes('connected')&&!connectionState.includes('dis')?'healthy':(connectionState.includes('disconnected')||connectionState==='disabled')?'critical':'degraded';
 
 let html='';
 
 // Health banner
-html+='<div class="health-banner '+healthClass+'"><div class="hicon">'+healthIcon+'</div><div class="hbody"><div class="htitle">'+health+(health==='Healthy'?' — WARP is operating normally':' — Issues detected')+'</div><div class="hsub">'+findings.length+' rule-based finding(s), '+(warp?.timeline?.length||0)+' timeline event(s), '+files.length+' files analysed</div></div></div>';
+html+='<div class="health-banner '+healthClass+'"><div class="hicon">'+healthIcon+'</div><div class="hbody"><div class="htitle">'+health+(health==='Healthy'?' — WARP is operating normally':' — Issues detected')+'</div><div class="hsub">'+findings.length+' rule-based finding(s) \u2022 '+(warp?.timeline?.length||0)+' timeline event(s) \u2022 '+files.length+' files analysed \u2022 '+Object.keys(props).filter(k=>k!=='__sources').length+' extracted properties</div></div></div>';
 
-// Hero cards
+// Hero cards — only show "Unknown" if truly no data found anywhere
 html+='<div class="warp-hero">';
-html+=heroCard('Connection Status',c.status||'Unknown',c.mode||'',statusClass);
-html+=heroCard('WARP Version',c.warpVersion||'Unknown',d.platform||'');
-html+=heroCard('Team',a.team||'Not linked',a.user||a.accountId||'');
-html+=heroCard('Colo / Endpoint',c.colo||'\u2014',c.endpoint||'');
-html+=heroCard('Your IP',c.myIp||'\u2014',c.gatewayIp?'via '+c.gatewayIp:'');
-html+=heroCard('DNS Mode',dns.protocol||'default',(dns.nameservers||[]).slice(0,2).join(', ')||'');
+html+=heroCard('Connection Status',status||'Not reported',mode||'',statusClass);
+html+=heroCard('WARP Version',version||'Not reported',platform||'');
+html+=heroCard('Team',team||'Not linked',accountIdent||'');
+html+=heroCard('Colo / Endpoint',colo||'\u2014',endpoint||'');
+html+=heroCard('Your IP',myIp||'\u2014',gateway?'gateway '+gateway:'');
+html+=heroCard('DNS Mode',dnsProto||'default',(dns.nameservers||[]).slice(0,2).join(', ')||'');
 if(warpIface){
 html+=heroCard('WARP Interface',warpIface.name,(warpIface.addresses||[]).map(a=>a.addr).join(', ')||(warpIface.up===false?'DOWN':'UP'),warpIface.up===false?'critical':'healthy');
+}else if((warp?.network?.interfaces||[]).length>0){
+html+=heroCard('WARP Interface','Not detected',(warp.network.interfaces.length)+' interface(s) found, none flagged as WARP','degraded');
 }else{
-html+=heroCard('WARP Interface','Not found','Tunnel interface missing','critical');
+html+=heroCard('WARP Interface','No data','No ifconfig/ipconfig parsed','');
 }
-html+=heroCard('Capture Time',d.captureTime||'\u2014','');
+html+=heroCard('Capture Time',captureTime||'\u2014','');
 html+='</div>';
 
 // Findings preview (first 3 critical)
@@ -1741,6 +1767,25 @@ html+='<div style="color:var(--text3);font-size:12px;padding:8px 0">No posture d
 }
 html+='</div>';
 html+='</div>';
+
+// All extracted properties (key-value pairs parsed from any file).
+// This gives users insight into what the parser actually found — useful
+// when some dashboard fields show as "Not reported" to confirm extraction worked.
+const propKeys=Object.keys(props).filter(k=>k!=='__sources');
+if(propKeys.length>0){
+propKeys.sort();
+html+='<details style="margin-top:20px" open><summary style="cursor:pointer;font-size:13px;color:var(--text2);font-weight:600;padding:8px 0">All Extracted Properties ('+propKeys.length+' from '+files.length+' files)</summary>';
+html+='<div class="warp-card" style="margin-top:10px"><table class="filelist-table"><thead><tr><th>Key</th><th>Value</th><th>Source File</th></tr></thead><tbody>';
+const sources=props.__sources||{};
+for(const k of propKeys){
+const v=props[k];
+const src=sources[k]||'';
+html+='<tr><td style="font-weight:600;color:var(--text)">'+esc(k)+'</td><td style="color:var(--text2);max-width:400px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+esc(String(v))+'">'+esc(String(v).substring(0,200))+'</td><td style="color:var(--text3);font-size:10px">'+esc(src.split('/').pop())+'</td></tr>';
+}
+html+='</tbody></table></div></details>';
+}else{
+html+='<div class="warp-empty" style="margin-top:20px"><h4>No properties extracted</h4><p>The parser didn\\'t find any Key: Value pairs in the uploaded files. Check the Log Viewer to see raw file contents, or try the All Files view.</p></div>';
+}
 
 $('warp-dashboard').innerHTML=html;
 }
