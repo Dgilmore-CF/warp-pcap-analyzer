@@ -21,10 +21,10 @@ import { decodePcapFile } from './pcap-decoder.js';
 import { analyzePcapWithAI, analyzeWarpDiagnostics } from './ai-analyzer.js';
 import { verifyAccessJWT } from './auth.js';
 import {
-	createSession, getSessionMeta, getSessionPackets, getAllSessionPackets,
-	getSessionFlows, getSessionStats, getSessionAI, getSessionWarp,
-	getFullSession, listUserSessions, deleteSession, updateSessionAI,
-	isSessionOwner, PACKETS_PER_CHUNK,
+	createSession, generateSessionId, getSessionMeta, getSessionPackets,
+	getAllSessionPackets, getSessionFlows, getSessionStats, getSessionAI,
+	getSessionWarp, getFullSession, listUserSessions, deleteSession,
+	updateSessionAI, isSessionOwner, PACKETS_PER_CHUNK,
 } from './session.js';
 import { exportSession } from './export.js';
 import { UI_HTML } from './ui.js';
@@ -58,6 +58,16 @@ function isPcapFile(name) {
 
 export default {
 	async fetch(request, env, ctx) {
+		try {
+		return await handleRequest(request, env, ctx);
+		} catch (e) {
+			console.error('Unhandled Worker error:', e);
+			return err(`Internal error: ${e.message}`, 500);
+		}
+	},
+};
+
+async function handleRequest(request, env, ctx) {
 		// CORS preflight
 		if (request.method === 'OPTIONS') {
 			return new Response(null, { headers: CORS });
@@ -204,8 +214,7 @@ export default {
 		}
 
 		return err('Method not allowed', 405);
-	},
-};
+}
 
 // ── Analysis handler ───────────────────────────────────────────────────────────
 
@@ -310,40 +319,33 @@ async function handleAnalyze(request, env, ctx, userEmail) {
 			}
 		}
 
-		// ── Create session ─────────────────────────────────────────────────────
+		// ── Run AI analysis ────────────────────────────────────────────────────
+		const aiResult = await runAIAnalysis(env.AI, pcapResult, allLogFiles);
+
+		// ── Create session in background (don't block response) ────────────────
 		let sessionId = null;
 		if (env.SESSIONS) {
-			sessionId = await createSession(env.SESSIONS, userEmail, {
-				fileName: primaryFileName,
-				fileSize: primaryFileSize,
-				fileType,
-				metadata: pcapResult?.metadata || {},
-				packets: pcapResult?.packets || [],
-				flows: pcapResult?.flows || {},
-				stats: pcapResult?.stats || {},
-				warnings: pcapResult?.warnings || [],
-				warpFiles: allLogFiles,
-			});
-		}
-
-		// ── Run AI analysis (non-blocking if possible) ─────────────────────────
-		const aiPromise = runAIAnalysis(env.AI, pcapResult, allLogFiles);
-
-		// If we have KV, store AI results when ready (use waitUntil for background)
-		if (sessionId && env.SESSIONS) {
+			sessionId = generateSessionId();
 			ctx.waitUntil(
-				aiPromise.then(async (aiResult) => {
+				createSession(env.SESSIONS, userEmail, {
+					fileName: primaryFileName,
+					fileSize: primaryFileSize,
+					fileType,
+					metadata: pcapResult?.metadata || {},
+					packets: pcapResult?.packets || [],
+					flows: pcapResult?.flows || {},
+					stats: pcapResult?.stats || {},
+					warnings: pcapResult?.warnings || [],
+					warpFiles: allLogFiles,
+				}, sessionId).then(async () => {
 					try {
 						await updateSessionAI(env.SESSIONS, sessionId, aiResult);
 					} catch (e) {
 						console.error('Failed to store AI results:', e);
 					}
-				})
+				}).catch(e => console.error('Session creation failed:', e))
 			);
 		}
-
-		// Wait for AI to complete for the response
-		const aiResult = await aiPromise;
 
 		// ── Build response ─────────────────────────────────────────────────────
 		const response = {
@@ -394,25 +396,32 @@ async function runAIAnalysis(ai, pcapResult, logFiles) {
 	const results = {};
 
 	try {
+		// Run PCAP and WARP analysis in parallel to reduce total latency
+		const promises = [];
+
 		if (pcapResult && pcapResult.packets.length > 0) {
-			// PCAP-first analysis
-			const pcapAI = await analyzePcapWithAI(ai, pcapResult);
-			results.pcap = pcapAI;
+			promises.push(
+				analyzePcapWithAI(ai, pcapResult)
+					.then(r => { results.pcap = r; })
+					.catch(e => { results.pcap = { success: false, error: e.message }; })
+			);
 		}
 
 		if (logFiles.length > 0) {
-			// WARP diagnostics analysis
 			const priorityFiles = [
 				...logFiles.filter(f => f.priority === 'high').slice(0, 10),
 				...logFiles.filter(f => f.priority === 'medium').slice(0, 5),
 			];
-
 			const pcapMeta = pcapResult?.metadata || null;
-			const warpAI = await analyzeWarpDiagnostics(ai, priorityFiles, pcapMeta);
-			results.warp = warpAI;
+			promises.push(
+				analyzeWarpDiagnostics(ai, priorityFiles, pcapMeta)
+					.then(r => { results.warp = r; })
+					.catch(e => { results.warp = { success: false, error: e.message }; })
+			);
 		}
 
-		// Determine overall status
+		await Promise.all(promises);
+
 		const pcapAnalysis = results.pcap?.analysis || results.pcap?.fallback;
 		const warpAnalysis = results.warp?.analysis || results.warp?.fallback;
 

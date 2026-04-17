@@ -33,8 +33,8 @@ export function generateSessionId() {
  * @param {Object} sessionData - { fileName, fileSize, fileType, metadata, packets, flows, stats, warpFiles? }
  * @returns {Promise<string>} Session ID
  */
-export async function createSession(kv, userEmail, sessionData) {
-	const sessionId = generateSessionId();
+export async function createSession(kv, userEmail, sessionData, sessionId = null) {
+	if (!sessionId) sessionId = generateSessionId();
 	const now = new Date().toISOString();
 
 	// Store metadata
@@ -60,15 +60,12 @@ export async function createSession(kv, userEmail, sessionData) {
 	// Meta
 	writes.push(kv.put(`session:${sessionId}:meta`, JSON.stringify(meta), { expirationTtl: SESSION_TTL }));
 
-	// Packets (chunked)
+	// Packets (chunked) — strip rawHex to save KV space (hex dump served from inline response only)
 	if (sessionData.packets?.length > 0) {
-		// Strip rawHex and rawAscii from stored packets to save space
-		// These can be regenerated from the original data if needed
-		const leanPackets = sessionData.packets.map(pkt => ({
-			...pkt,
-			rawHex: pkt.rawHex, // Keep hex for hex dump view
-			rawAscii: undefined, // Can reconstruct from hex
-		}));
+		const leanPackets = sessionData.packets.map(pkt => {
+			const { rawHex, rawAscii, ...rest } = pkt;
+			return rest;
+		});
 
 		const chunks = Math.ceil(leanPackets.length / PACKETS_PER_CHUNK);
 		for (let i = 0; i < chunks; i++) {
