@@ -45,8 +45,8 @@
 	 * If both are unset, auth is bypassed (dev mode).
 	 */
 	"vars": {
-		"CF_ACCESS_TEAM_DOMAIN": "",
-		"CF_ACCESS_AUD": ""
+		"CF_ACCESS_TEAM_DOMAIN": "dtg-lab.cloudflareaccess.com",
+		"CF_ACCESS_AUD": "384f757c0589383e4c7c601be01b3903b599d004a67220edb968fb13cd79475e"
 	},
 
 	/**
