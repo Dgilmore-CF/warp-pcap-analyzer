@@ -265,11 +265,19 @@ async function handleAnalyze(request, env, ctx, userEmail) {
 						allPcapDecoded.push({ filename, ...decoded });
 					} else {
 					try {
+							// Skip known binary files
+							const lower = filename.toLowerCase();
+							if (lower.endsWith('.evtx') || lower.endsWith('.bin') || lower.endsWith('.dat')) continue;
+
 							const fullContent = parseTextFile(data);
-							// Smart truncation: keep beginning and end for logs (most diagnostic info
-							// is in recent events); keep full content for small config files.
+							// Smart truncation: keep beginning and end for logs. Caps tuned per file type:
+							//   - daemon.log / *.log → 512KB (enough for ~5000 recent events)
+							//   - JSON/config files → keep full up to 256KB
+							//   - snapshots\*.log → 8KB (these are just repeated snapshots)
 							let content = fullContent;
-							const MAX_KEEP = 256 * 1024;  // 256KB per file — enough for daemon.log analysis
+							const isSnapshot = filename.includes('snapshots\\') || filename.includes('snapshots/');
+							const isLog = lower.endsWith('.log');
+							const MAX_KEEP = isSnapshot ? 8 * 1024 : (isLog ? 512 * 1024 : 256 * 1024);
 							if (fullContent.length > MAX_KEEP) {
 								const head = fullContent.substring(0, 32 * 1024);
 								const tail = fullContent.substring(fullContent.length - (MAX_KEEP - 32 * 1024));
@@ -418,14 +426,19 @@ async function handleAnalyze(request, env, ctx, userEmail) {
 		response.success = aiResult.success !== false;
 
 		if (allLogFiles.length > 0) {
-			response.warpFiles = allLogFiles.map(f => ({
-				filename: f.filename,
-				category: f.category,
-				priority: f.priority,
-				size: f.originalSize || f.content.length,
-				// Include full content so UI can show log viewer
-				content: f.content,
-			}));
+			// Cap per-file content in the inline response to keep it manageable.
+			// Full content is still stored in KV session for the log viewer on reload.
+			const INLINE_MAX_PER_FILE = 128 * 1024;
+			response.warpFiles = allLogFiles.map(f => {
+				const c = f.content || '';
+				return {
+					filename: f.filename,
+					category: f.category,
+					priority: f.priority,
+					size: f.originalSize || c.length,
+					content: c.length > INLINE_MAX_PER_FILE ? c.substring(0, INLINE_MAX_PER_FILE) + '\n\n...[content truncated in response; full in session]' : c,
+				};
+			});
 			// Include full structured WARP snapshot for the UI
 			if (warpSnapshot) response.warp = warpSnapshot;
 		}
