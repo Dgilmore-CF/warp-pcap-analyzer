@@ -1,287 +1,448 @@
 /**
- * Cloudflare WARP Diagnostics and PCAP Analyzer
- * Uses Workers AI (Llama 4 Scout) to analyze WARP diag logs and packet captures
+ * WARP & PCAP Analyzer v2 — Cloudflare Worker
+ *
+ * Routes:
+ *   GET  /                          → UI (HTML) or API info (JSON)
+ *   POST /api/analyze               → Upload & analyse (unified)
+ *   GET  /api/sessions              → List user sessions
+ *   GET  /api/sessions/:id          → Session metadata
+ *   GET  /api/sessions/:id/packets  → Packet data (paginated)
+ *   GET  /api/sessions/:id/flows    → Flow/conversation data
+ *   GET  /api/sessions/:id/stats    → Protocol statistics
+ *   GET  /api/sessions/:id/ai       → AI analysis results
+ *   GET  /api/sessions/:id/warp     → WARP diagnostics data
+ *   GET  /api/sessions/:id/export/:fmt → Export (json|csv|har|html)
+ *   DELETE /api/sessions/:id        → Delete session
+ *   OPTIONS *                       → CORS preflight
  */
 
-import { extractZipFiles, parseTextFile, parsePcapBasic, categorizeWarpFile, extractKeyInfo, extractPcapPacketSummaries } from './parsers.js';
-import { analyzeWarpDiagnostics, analyzePcapWithAI } from './ai-analyzer.js';
+import { extractZipFiles, parseTextFile, categorizeWarpFile, extractKeyInfo } from './parsers.js';
+import { decodePcapFile } from './pcap-decoder.js';
+import { analyzePcapWithAI, analyzeWarpDiagnostics } from './ai-analyzer.js';
+import { verifyAccessJWT } from './auth.js';
+import {
+	createSession, getSessionMeta, getSessionPackets, getAllSessionPackets,
+	getSessionFlows, getSessionStats, getSessionAI, getSessionWarp,
+	getFullSession, listUserSessions, deleteSession, updateSessionAI,
+	isSessionOwner, PACKETS_PER_CHUNK,
+} from './session.js';
+import { exportSession } from './export.js';
 import { UI_HTML } from './ui.js';
 
-/**
- * Check if filename is a PCAP or PCAPNG file
- * @param {string} filename 
- * @returns {boolean}
- */
-function isPcapFile(filename) {
-  const lower = filename.toLowerCase();
-  return lower.endsWith('.pcap') || lower.endsWith('.pcapng');
-}
+// ── CORS ───────────────────────────────────────────────────────────────────────
 
-// CORS headers for cross-origin requests
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS, GET',
-  'Access-Control-Allow-Headers': 'Content-Type',
+const CORS = {
+	'Access-Control-Allow-Origin': '*',
+	'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+	'Access-Control-Allow-Headers': 'Content-Type, Cf-Access-Jwt-Assertion',
+	'Access-Control-Max-Age': '86400',
 };
 
-/**
- * Handle CORS preflight requests
- */
-function handleOptions() {
-  return new Response(null, {
-    headers: corsHeaders,
-  });
+function json(data, status = 200) {
+	return new Response(JSON.stringify(data), {
+		status,
+		headers: { ...CORS, 'Content-Type': 'application/json' },
+	});
 }
 
-/**
- * Create error response
- */
-function errorResponse(message, status = 400) {
-  return new Response(JSON.stringify({ error: message }), {
-    status,
-    headers: {
-      ...corsHeaders,
-      'Content-Type': 'application/json',
-    },
-  });
+function err(message, status = 400) {
+	return json({ error: message }, status);
 }
 
-/**
- * Create success response
- */
-function successResponse(data) {
-  return new Response(JSON.stringify(data), {
-    headers: {
-      ...corsHeaders,
-      'Content-Type': 'application/json',
-    },
-  });
+function isPcapFile(name) {
+	const l = name.toLowerCase();
+	return l.endsWith('.pcap') || l.endsWith('.pcapng');
 }
 
-/**
- * Process uploaded files and extract analysis data
- * @param {FormData} formData - The form data containing files and options
- * @param {number} packetCount - Number of packets to analyze (0 = all)
- */
-async function processUploadedFiles(formData, packetCount = 50) {
-  const files = [];
-  const pcapFiles = [];
-  
-  for (const [name, file] of formData.entries()) {
-    if (file instanceof File) {
-      files.push({
-        name: file.name,
-        data: await file.arrayBuffer(),
-        type: file.type,
-      });
-    }
-  }
-
-  if (files.length === 0) {
-    throw new Error('No files uploaded');
-  }
-
-  // Process each file
-  const allLogFiles = [];
-  const allPcapMetadata = [];
-
-  for (const file of files) {
-    // Check if it's a ZIP file
-    if (file.name.endsWith('.zip') || file.type === 'application/zip') {
-      const extractedFiles = extractZipFiles(file.data);
-      
-      for (const [filename, data] of extractedFiles) {
-        const category = categorizeWarpFile(filename);
-        
-        if (isPcapFile(filename)) {
-          // Parse PCAP/PCAPNG file - get both metadata and packet summaries
-          const pcapMetadata = parsePcapBasic(data);
-          allPcapMetadata.push({ filename, ...pcapMetadata });
-          
-          // Also extract packet summaries as searchable text for evidence
-          const packetSummary = extractPcapPacketSummaries(data, filename, packetCount);
-          allLogFiles.push({
-            filename,
-            content: packetSummary,
-            category: 'pcap',
-            priority: 'high', // PCAP files are high priority for network analysis
-            keyInfo: { packetCount: pcapMetadata.packetCount, format: pcapMetadata.format },
-          });
-        } else {
-          // Parse text file
-          try {
-            const content = parseTextFile(data);
-            const keyInfo = extractKeyInfo(filename, content);
-            allLogFiles.push({
-              filename,
-              content,
-              category: category.category,
-              priority: category.priority,
-              keyInfo,
-            });
-          } catch (error) {
-            console.warn(`Failed to parse ${filename}:`, error);
-          }
-        }
-      }
-    } else if (isPcapFile(file.name)) {
-      // Individual PCAP/PCAPNG file
-      const pcapData = new Uint8Array(file.data);
-      const pcapMetadata = parsePcapBasic(pcapData);
-      allPcapMetadata.push({ filename: file.name, ...pcapMetadata });
-      
-      // Extract packet summaries as searchable text for evidence
-      const packetSummary = extractPcapPacketSummaries(pcapData, file.name, packetCount);
-      allLogFiles.push({
-        filename: file.name,
-        content: packetSummary,
-        category: 'pcap',
-        priority: 'high',
-        keyInfo: { packetCount: pcapMetadata.packetCount, format: pcapMetadata.format },
-      });
-    } else {
-      // Individual text file
-      try {
-        const data = new Uint8Array(file.data);
-        const content = parseTextFile(data);
-        const category = categorizeWarpFile(file.name);
-        const keyInfo = extractKeyInfo(file.name, content);
-        allLogFiles.push({
-          filename: file.name,
-          content,
-          category: category.category,
-          priority: category.priority,
-          keyInfo,
-        });
-      } catch (error) {
-        console.warn(`Failed to parse ${file.name}:`, error);
-      }
-    }
-  }
-
-  return { logFiles: allLogFiles, pcapMetadata: allPcapMetadata };
-}
+// ── Router ─────────────────────────────────────────────────────────────────────
 
 export default {
-  async fetch(request, env, ctx) {
-    // Handle CORS preflight
-    if (request.method === 'OPTIONS') {
-      return handleOptions();
-    }
+	async fetch(request, env, ctx) {
+		// CORS preflight
+		if (request.method === 'OPTIONS') {
+			return new Response(null, { headers: CORS });
+		}
 
-    // Handle GET request - Web UI or API info
-    if (request.method === 'GET') {
-      const acceptHeader = request.headers.get('accept') || '';
-      
-      // Serve HTML UI for browser requests
-      if (acceptHeader.includes('text/html')) {
-        return new Response(UI_HTML, {
-          headers: {
-            ...corsHeaders,
-            'Content-Type': 'text/html; charset=utf-8',
-          },
-        });
-      }
-      
-      // Serve JSON API info for programmatic requests
-      return successResponse({
-        name: 'WARP Diagnostics & PCAP Analyzer',
-        version: '1.0.0',
-        description: 'AI-powered analysis of Cloudflare WARP diagnostic logs and packet captures',
-        model: 'Llama 4 Scout 17B',
-        endpoints: {
-          ui: 'GET / - Web interface (browser)',
-          api_info: 'GET / - API info (Accept: application/json)',
-          analyze: 'POST / - Upload warp-diag ZIP or PCAP files for analysis',
-        },
-        usage: 'Send multipart/form-data with file attachments',
-      });
-    }
+		const url = new URL(request.url);
+		const path = url.pathname;
 
-    // Only accept POST for analysis
-    if (request.method !== 'POST') {
-      return errorResponse('Method not allowed. Use POST to upload files.', 405);
-    }
+		// Serve UI for browser GET /
+		if (request.method === 'GET' && path === '/') {
+			const accept = request.headers.get('accept') || '';
+			if (accept.includes('text/html')) {
+				return new Response(UI_HTML, {
+					headers: { ...CORS, 'Content-Type': 'text/html; charset=utf-8' },
+				});
+			}
+			return json({
+				name: 'WARP & PCAP Analyzer',
+				version: '2.0.0',
+				description: 'Professional network capture analysis with Wireshark-style UI and AI-powered diagnostics',
+				models: ['Llama 4 Scout 17B', 'Llama 3.3 70B Fast', 'DeepSeek R1 32B'],
+				endpoints: {
+					ui: 'GET / (browser)',
+					analyze: 'POST /api/analyze (multipart/form-data)',
+					sessions: 'GET /api/sessions',
+					session: 'GET /api/sessions/:id',
+					packets: 'GET /api/sessions/:id/packets?page=0',
+					flows: 'GET /api/sessions/:id/flows',
+					stats: 'GET /api/sessions/:id/stats',
+					ai: 'GET /api/sessions/:id/ai',
+					warp: 'GET /api/sessions/:id/warp',
+					export: 'GET /api/sessions/:id/export/:format',
+					delete: 'DELETE /api/sessions/:id',
+				},
+			});
+		}
 
-    // Check if AI binding is available
-    if (!env.AI) {
-      return errorResponse('AI binding not configured. Please check wrangler.jsonc', 500);
-    }
+		// ── Auth check for API routes ──────────────────────────────────────────
+		if (path.startsWith('/api/')) {
+			const authResult = await verifyAccessJWT(request, env);
+			if (!authResult.authenticated) {
+				return err(authResult.error || 'Authentication required', 401);
+			}
 
-    try {
-      // Parse multipart form data
-      const contentType = request.headers.get('content-type') || '';
-      if (!contentType.includes('multipart/form-data')) {
-        return errorResponse('Content-Type must be multipart/form-data');
-      }
+			const userEmail = authResult.identity.email;
 
-      const formData = await request.formData();
-      
-      // Extract packet count option (default to 50 if not specified)
-      let packetCount = 50;
-      const packetCountValue = formData.get('packetCount');
-      if (packetCountValue) {
-        const parsed = parseInt(packetCountValue, 10);
-        // 0 means all packets, otherwise use the specified value
-        packetCount = isNaN(parsed) ? 50 : parsed;
-      }
-      
-      // Process uploaded files
-      const { logFiles, pcapMetadata } = await processUploadedFiles(formData, packetCount);
+			// ── POST /api/analyze ──────────────────────────────────────────────
+			if (request.method === 'POST' && path === '/api/analyze') {
+				return handleAnalyze(request, env, ctx, userEmail);
+			}
 
-      if (logFiles.length === 0 && pcapMetadata.length === 0) {
-        return errorResponse('No valid WARP diag or PCAP files found in upload');
-      }
+			// ── GET /api/sessions ──────────────────────────────────────────────
+			if (request.method === 'GET' && path === '/api/sessions') {
+				if (!env.SESSIONS) return err('Session storage not configured', 500);
+				const sessions = await listUserSessions(env.SESSIONS, userEmail);
+				return json({ sessions });
+			}
 
-      // Prioritize high-priority files for AI analysis (to stay within token limits)
-      const priorityFiles = logFiles
-        .filter(f => f.priority === 'high')
-        .slice(0, 10); // Limit to top 10 files
+			// ── Session-specific routes ────────────────────────────────────────
+			const sessionMatch = path.match(/^\/api\/sessions\/([^/]+)(?:\/(.+))?$/);
+			if (sessionMatch) {
+				const sessionId = sessionMatch[1];
+				const sub = sessionMatch[2] || '';
 
-      const mediumFiles = logFiles
-        .filter(f => f.priority === 'medium')
-        .slice(0, 5); // Add some medium priority files
+				if (!env.SESSIONS) return err('Session storage not configured', 500);
 
-      const filesToAnalyze = [...priorityFiles, ...mediumFiles];
+				// Verify ownership
+				const owns = await isSessionOwner(env.SESSIONS, sessionId, userEmail);
+				if (!owns) return err('Session not found or access denied', 404);
 
-      console.log(`Analyzing ${filesToAnalyze.length} log files and ${pcapMetadata.length} PCAP files`);
+				if (request.method === 'DELETE' && !sub) {
+					const deleted = await deleteSession(env.SESSIONS, sessionId, userEmail);
+					return json({ deleted });
+				}
 
-      // Run AI analysis
-      const analysis = await analyzeWarpDiagnostics(
-        env.AI,
-        filesToAnalyze,
-        pcapMetadata.length > 0 ? pcapMetadata[0] : null
-      );
+				if (request.method === 'GET') {
+					switch (sub) {
+						case '': {
+							const meta = await getSessionMeta(env.SESSIONS, sessionId);
+							return json(meta);
+						}
+						case 'packets': {
+							const page = parseInt(url.searchParams.get('page') || '0', 10);
+							const packets = await getSessionPackets(env.SESSIONS, sessionId, page);
+							const meta = await getSessionMeta(env.SESSIONS, sessionId);
+							return json({
+								packets,
+								page,
+								pageSize: PACKETS_PER_CHUNK,
+								totalPackets: meta?.totalPackets || 0,
+								totalPages: Math.ceil((meta?.totalPackets || 0) / PACKETS_PER_CHUNK),
+							});
+						}
+						case 'flows': {
+							const flows = await getSessionFlows(env.SESSIONS, sessionId);
+							return json({ flows });
+						}
+						case 'stats': {
+							const stats = await getSessionStats(env.SESSIONS, sessionId);
+							return json({ stats });
+						}
+						case 'ai': {
+							const ai = await getSessionAI(env.SESSIONS, sessionId);
+							return json({ ai });
+						}
+						case 'warp': {
+							const warp = await getSessionWarp(env.SESSIONS, sessionId);
+							return json({ warp });
+						}
+						default: {
+							// Export routes: export/json, export/csv, etc.
+							const exportMatch = sub.match(/^export\/(\w+)$/);
+							if (exportMatch) {
+								const format = exportMatch[1];
+								try {
+									const full = await getFullSession(env.SESSIONS, sessionId);
+									if (!full) return err('Session data not found', 404);
+									const result = exportSession(full, format);
+									return new Response(result.body, {
+										headers: {
+											...CORS,
+											'Content-Type': result.contentType,
+											'Content-Disposition': `attachment; filename="${result.filename}"`,
+										},
+									});
+								} catch (e) {
+									return err(e.message, 400);
+								}
+							}
+							return err('Unknown session endpoint', 404);
+						}
+					}
+				}
+			}
 
-      // Compile results
-      const results = {
-        timestamp: new Date().toISOString(),
-        filesProcessed: {
-          logFiles: logFiles.length,
-          pcapFiles: pcapMetadata.length,
-          total: logFiles.length + pcapMetadata.length,
-        },
-        filesAnalyzed: filesToAnalyze.length,
-        pcapMetadata: pcapMetadata,
-        analysis: analysis.analysis || analysis.fallback,
-        modelUsed: analysis.model,
-        success: analysis.success,
-      };
+			return err('Not found', 404);
+		}
 
-      // Add error info if AI analysis failed
-      if (!analysis.success) {
-        results.warning = 'AI analysis failed, using fallback rule-based analysis';
-        results.error = analysis.error;
-      }
+		// Fallback: serve UI for any non-API GET
+		if (request.method === 'GET') {
+			return new Response(UI_HTML, {
+				headers: { ...CORS, 'Content-Type': 'text/html; charset=utf-8' },
+			});
+		}
 
-      return successResponse(results);
-
-    } catch (error) {
-      console.error('Analysis error:', error);
-      return errorResponse(
-        `Analysis failed: ${error.message}`,
-        500
-      );
-    }
-  },
+		return err('Method not allowed', 405);
+	},
 };
+
+// ── Analysis handler ───────────────────────────────────────────────────────────
+
+async function handleAnalyze(request, env, ctx, userEmail) {
+	const contentType = request.headers.get('content-type') || '';
+	if (!contentType.includes('multipart/form-data')) {
+		return err('Content-Type must be multipart/form-data');
+	}
+
+	if (!env.AI) return err('AI binding not configured', 500);
+
+	try {
+		const formData = await request.formData();
+		const files = [];
+
+		for (const [, value] of formData.entries()) {
+			if (value instanceof File) {
+				files.push({ name: value.name, data: await value.arrayBuffer(), type: value.type });
+			}
+		}
+
+		if (files.length === 0) return err('No files uploaded');
+
+		// ── Process files ──────────────────────────────────────────────────────
+		const allLogFiles = [];
+		const allPcapDecoded = [];
+		let primaryFileName = files[0].name;
+		let primaryFileSize = files[0].data.byteLength;
+		let fileType = 'unknown';
+
+		for (const file of files) {
+			if (file.name.endsWith('.zip') || file.type === 'application/zip') {
+				fileType = 'warp-diag';
+				const extracted = extractZipFiles(file.data);
+
+				for (const [filename, data] of extracted) {
+					if (isPcapFile(filename)) {
+						const decoded = decodePcapFile(new Uint8Array(data));
+						allPcapDecoded.push({ filename, ...decoded });
+					} else {
+						try {
+							const content = parseTextFile(data);
+							const cat = categorizeWarpFile(filename);
+							const keyInfo = extractKeyInfo(filename, content);
+							allLogFiles.push({ filename, content, category: cat.category, priority: cat.priority, keyInfo });
+						} catch (e) {
+							console.warn(`Failed to parse ${filename}:`, e.message);
+						}
+					}
+				}
+			} else if (isPcapFile(file.name)) {
+				fileType = 'pcap';
+				const decoded = decodePcapFile(new Uint8Array(file.data));
+				allPcapDecoded.push({ filename: file.name, ...decoded });
+			} else {
+				fileType = fileType === 'unknown' ? 'log' : fileType;
+				try {
+					const content = parseTextFile(new Uint8Array(file.data));
+					const cat = categorizeWarpFile(file.name);
+					const keyInfo = extractKeyInfo(file.name, content);
+					allLogFiles.push({ filename: file.name, content, category: cat.category, priority: cat.priority, keyInfo });
+				} catch (e) {
+					console.warn(`Failed to parse ${file.name}:`, e.message);
+				}
+			}
+		}
+
+		if (allLogFiles.length === 0 && allPcapDecoded.length === 0) {
+			return err('No valid files found in upload');
+		}
+
+		// ── Merge PCAP data if multiple captures ───────────────────────────────
+		let pcapResult = null;
+		if (allPcapDecoded.length > 0) {
+			if (allPcapDecoded.length === 1) {
+				pcapResult = allPcapDecoded[0];
+			} else {
+				// Merge packets from all captures
+				const mergedPackets = [];
+				const mergedFlows = {};
+				const allWarnings = [];
+				let baseMetadata = allPcapDecoded[0].metadata;
+
+				for (const dec of allPcapDecoded) {
+					mergedPackets.push(...dec.packets);
+					Object.assign(mergedFlows, dec.flows);
+					allWarnings.push(...dec.warnings);
+				}
+
+				// Re-number merged packets
+				mergedPackets.sort((a, b) => a.timestamp - b.timestamp);
+				mergedPackets.forEach((p, i) => p.number = i + 1);
+
+				pcapResult = {
+					filename: allPcapDecoded.map(d => d.filename).join(', '),
+					metadata: { ...baseMetadata, totalPackets: mergedPackets.length, mergedFrom: allPcapDecoded.length },
+					packets: mergedPackets,
+					flows: mergedFlows,
+					stats: allPcapDecoded[0].stats, // Will be recalculated
+					warnings: allWarnings,
+				};
+			}
+		}
+
+		// ── Create session ─────────────────────────────────────────────────────
+		let sessionId = null;
+		if (env.SESSIONS) {
+			sessionId = await createSession(env.SESSIONS, userEmail, {
+				fileName: primaryFileName,
+				fileSize: primaryFileSize,
+				fileType,
+				metadata: pcapResult?.metadata || {},
+				packets: pcapResult?.packets || [],
+				flows: pcapResult?.flows || {},
+				stats: pcapResult?.stats || {},
+				warnings: pcapResult?.warnings || [],
+				warpFiles: allLogFiles,
+			});
+		}
+
+		// ── Run AI analysis (non-blocking if possible) ─────────────────────────
+		const aiPromise = runAIAnalysis(env.AI, pcapResult, allLogFiles);
+
+		// If we have KV, store AI results when ready (use waitUntil for background)
+		if (sessionId && env.SESSIONS) {
+			ctx.waitUntil(
+				aiPromise.then(async (aiResult) => {
+					try {
+						await updateSessionAI(env.SESSIONS, sessionId, aiResult);
+					} catch (e) {
+						console.error('Failed to store AI results:', e);
+					}
+				})
+			);
+		}
+
+		// Wait for AI to complete for the response
+		const aiResult = await aiPromise;
+
+		// ── Build response ─────────────────────────────────────────────────────
+		const response = {
+			sessionId,
+			timestamp: new Date().toISOString(),
+			fileType,
+			filesProcessed: {
+				logFiles: allLogFiles.length,
+				pcapFiles: allPcapDecoded.length,
+				total: allLogFiles.length + allPcapDecoded.length,
+			},
+		};
+
+		if (pcapResult) {
+			response.pcap = {
+				metadata: pcapResult.metadata,
+				stats: pcapResult.stats,
+				totalPackets: pcapResult.packets.length,
+				// Include first page of packets inline for immediate rendering
+				packets: pcapResult.packets.slice(0, PACKETS_PER_CHUNK),
+				flows: pcapResult.flows,
+				warnings: pcapResult.warnings,
+			};
+		}
+
+		response.ai = aiResult;
+		response.success = aiResult.success !== false;
+
+		if (allLogFiles.length > 0) {
+			response.warpFiles = allLogFiles.map(f => ({
+				filename: f.filename,
+				category: f.category,
+				priority: f.priority,
+			}));
+		}
+
+		return json(response);
+
+	} catch (error) {
+		console.error('Analysis error:', error);
+		return err(`Analysis failed: ${error.message}`, 500);
+	}
+}
+
+// ── AI dispatch ────────────────────────────────────────────────────────────────
+
+async function runAIAnalysis(ai, pcapResult, logFiles) {
+	const results = {};
+
+	try {
+		if (pcapResult && pcapResult.packets.length > 0) {
+			// PCAP-first analysis
+			const pcapAI = await analyzePcapWithAI(ai, pcapResult);
+			results.pcap = pcapAI;
+		}
+
+		if (logFiles.length > 0) {
+			// WARP diagnostics analysis
+			const priorityFiles = [
+				...logFiles.filter(f => f.priority === 'high').slice(0, 10),
+				...logFiles.filter(f => f.priority === 'medium').slice(0, 5),
+			];
+
+			const pcapMeta = pcapResult?.metadata || null;
+			const warpAI = await analyzeWarpDiagnostics(ai, priorityFiles, pcapMeta);
+			results.warp = warpAI;
+		}
+
+		// Determine overall status
+		const pcapAnalysis = results.pcap?.analysis || results.pcap?.fallback;
+		const warpAnalysis = results.warp?.analysis || results.warp?.fallback;
+
+		results.combined = {
+			health_status: determineOverallHealth(pcapAnalysis, warpAnalysis),
+			summary: buildCombinedSummary(pcapAnalysis, warpAnalysis),
+			models_used: [results.pcap?.model, results.warp?.model].filter(Boolean),
+		};
+
+		results.success = true;
+	} catch (error) {
+		console.error('AI analysis error:', error);
+		results.success = false;
+		results.error = error.message;
+	}
+
+	return results;
+}
+
+function determineOverallHealth(pcap, warp) {
+	const statuses = [pcap?.health_status, warp?.health_status].filter(Boolean);
+	if (statuses.includes('Critical')) return 'Critical';
+	if (statuses.includes('Degraded')) return 'Degraded';
+	if (statuses.length > 0) return statuses[0];
+	return 'Unknown';
+}
+
+function buildCombinedSummary(pcap, warp) {
+	const parts = [];
+	if (pcap?.summary) parts.push(`PCAP: ${pcap.summary}`);
+	if (warp?.summary) parts.push(`WARP: ${warp.summary}`);
+	return parts.join(' | ') || 'Analysis complete';
+}

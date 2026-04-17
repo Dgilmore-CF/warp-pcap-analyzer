@@ -1,64 +1,73 @@
 /**
- * For more details on how to configure Wrangler, refer to:
+ * WARP & PCAP Analyzer v2 — Wrangler Configuration
  * https://developers.cloudflare.com/workers/wrangler/configuration/
  */
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
-	"name": "pcap-analyzer-worker",
+	"name": "warp-pcap-analyzer",
 	"main": "src/index.js",
-	"compatibility_date": "2024-01-01",
+	"compatibility_date": "2025-01-01",
+
+	/**
+	 * Observability (logging, tracing)
+	 */
 	"observability": {
 		"enabled": true
 	},
+
 	/**
-	 * AI Binding for Workers AI
-	 * Enables access to Cloudflare's AI models
+	 * Workers AI Binding
+	 * Provides access to Llama 4 Scout, Llama 3.3, DeepSeek R1
 	 */
 	"ai": {
 		"binding": "AI"
 	},
+
+	/**
+	 * Workers KV — Session Storage
+	 * Stores analysis sessions, decoded packets, AI results.
+	 * Create the namespace with:
+	 *   npx wrangler kv namespace create SESSIONS
+	 * Then paste the ID below.
+	 */
+	"kv_namespaces": [
+		{
+			"binding": "SESSIONS",
+			"id": "5cdad6d61afd4742af8344776b51b434"
+		}
+	],
+
+	/**
+	 * Environment Variables
+	 * CF_ACCESS_TEAM_DOMAIN: Your Cloudflare Access team domain (e.g., "myteam" or "myteam.cloudflareaccess.com")
+	 * CF_ACCESS_AUD: Application Audience (AUD) tag from Access Application config
+	 *
+	 * If both are unset, auth is bypassed (dev mode).
+	 */
+	"vars": {
+		"CF_ACCESS_TEAM_DOMAIN": "",
+		"CF_ACCESS_AUD": ""
+	},
+
 	/**
 	 * Custom Domain Configuration
-	 * https://developers.cloudflare.com/workers/wrangler/configuration/#custom-domains
 	 */
 	"routes": [
 		{
 			"pattern": "warp-analyzer.dtg-lab.net",
 			"custom_domain": true
 		}
-	]
-	/**
-	 * Smart Placement
-	 * Docs: https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement
-	 */
-	// "placement": { "mode": "smart" },
+	],
 
 	/**
-	 * Bindings
-	 * Bindings allow your Worker to interact with resources on the Cloudflare Developer Platform, including
-	 * databases, object storage, AI inference, real-time communication and more.
-	 * https://developers.cloudflare.com/workers/runtime-apis/bindings/
+	 * Smart Placement — route requests to the nearest data centre with AI GPUs
 	 */
+	"placement": {
+		"mode": "smart"
+	}
 
 	/**
-	 * Environment Variables
-	 * https://developers.cloudflare.com/workers/wrangler/configuration/#environment-variables
+	 * Limits — increase for large PCAP processing
+	 * "limits": { "cpu_ms": 30000 }
 	 */
-	// "vars": { "MY_VARIABLE": "production_value" },
-	/**
-	 * Note: Use secrets to store sensitive data.
-	 * https://developers.cloudflare.com/workers/configuration/secrets/
-	 */
-
-	/**
-	 * Static Assets
-	 * https://developers.cloudflare.com/workers/static-assets/binding/
-	 */
-	// "assets": { "directory": "./public/", "binding": "ASSETS" },
-
-	/**
-	 * Service Bindings (communicate between multiple Workers)
-	 * https://developers.cloudflare.com/workers/wrangler/configuration/#service-bindings
-	 */
-	// "services": [{ "binding": "MY_SERVICE", "service": "my-service" }]
 }
