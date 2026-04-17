@@ -212,11 +212,12 @@ select:focus,input:focus{border-color:var(--orange)}
 
 /* ── Stats Tab ────────────────────────────────────────────────────────── */
 .stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;padding:16px}
-.stat-card{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:16px}
+.stat-card{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:16px;overflow:hidden;min-width:0}
 .stat-card h4{font-size:12px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px}
-.stat-row{display:flex;justify-content:space-between;padding:4px 0;font-size:12px;border-bottom:1px solid var(--border)}
+.stat-row{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:4px 0;font-size:12px;border-bottom:1px solid var(--border);min-width:0}
 .stat-row:last-child{border:none}
-.stat-row .label{color:var(--text2)}.stat-row .value{font-weight:600;font-family:var(--mono)}
+.stat-row .label{color:var(--text2);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.stat-row .value{font-weight:600;font-family:var(--mono);flex-shrink:0;white-space:nowrap;text-align:right;max-width:60%;overflow:hidden;text-overflow:ellipsis}
 .stat-bar{height:6px;background:var(--bg4);border-radius:3px;margin-top:3px;overflow:hidden}
 .stat-bar-fill{height:100%;border-radius:3px}
 .stat-big{font-size:28px;font-weight:700;color:var(--text);margin:4px 0}
@@ -278,7 +279,7 @@ select:focus,input:focus{border-color:var(--orange)}
 
 /* ── I/O Graph ────────────────────────────────────────────────────────── */
 .io-graph{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:16px;margin:16px}
-.io-graph-svg{width:100%;height:200px;display:block}
+.io-graph-svg{width:100%;height:auto;max-height:320px;display:block}
 .io-grid{stroke:var(--border);stroke-width:.5}
 .io-line{fill:none;stroke:var(--orange);stroke-width:2}
 .io-area{fill:var(--orange);fill-opacity:.15}
@@ -1232,54 +1233,80 @@ function buildIoGraph(){
 const pkts=state.allPackets;
 if(!pkts||pkts.length<2)return '<div style="color:var(--text3);padding:20px;text-align:center">Not enough packets for I/O graph</div>';
 
-const W=800,H=180,padL=50,padR=10,padT=10,padB=28;
-const baseTime=pkts[0].timestamp;
-const endTime=pkts[pkts.length-1].timestamp;
-const duration=Math.max(endTime-baseTime,.001);
-const buckets=Math.min(100,Math.max(10,Math.floor(duration*2)));
-const bucketW=duration/buckets;
-const counts=new Array(buckets).fill(0);
-for(const p of pkts){
-const b=Math.min(buckets-1,Math.floor((p.timestamp-baseTime)/bucketW));
-counts[b]++;
-}
-const maxCount=Math.max(...counts,1);
+// Chart geometry — wide aspect ratio but preserve proportions when scaling
+const W=1200,H=320;
+const padL=70,padR=20,padT=15,padB=60;
 const plotW=W-padL-padR;
 const plotH=H-padT-padB;
 
-// Build path
-let pathD='M '+padL+','+(padT+plotH);
-let areaD='M '+padL+','+(padT+plotH);
+const baseTime=pkts[0].timestamp;
+const endTime=pkts[pkts.length-1].timestamp;
+const duration=Math.max(endTime-baseTime,.001);
+
+// Pick a round-number bucket size: aim for 20-60 buckets
+let bucketSec;
+if(duration<=1)bucketSec=.02;
+else if(duration<=5)bucketSec=.1;
+else if(duration<=30)bucketSec=.5;
+else if(duration<=120)bucketSec=2;
+else if(duration<=600)bucketSec=10;
+else bucketSec=Math.ceil(duration/60);
+const buckets=Math.max(2,Math.ceil(duration/bucketSec));
+const counts=new Array(buckets).fill(0);
+for(const p of pkts){
+const b=Math.min(buckets-1,Math.floor((p.timestamp-baseTime)/bucketSec));
+counts[b]++;
+}
+const maxCount=Math.max(...counts,1);
+const perSecMax=maxCount/bucketSec;
+
+// Build area + line paths
+let pathD='',areaD='';
 for(let i=0;i<buckets;i++){
 const x=padL+(i+.5)*(plotW/buckets);
 const y=padT+plotH-(counts[i]/maxCount)*plotH;
-if(i===0){pathD='M '+x+','+y;areaD+=' L '+x+','+y}
-else{pathD+=' L '+x+','+y;areaD+=' L '+x+','+y}
+if(i===0){pathD='M '+x.toFixed(1)+','+y.toFixed(1);areaD='M '+padL+','+(padT+plotH)+' L '+x.toFixed(1)+','+y.toFixed(1)}
+else{pathD+=' L '+x.toFixed(1)+','+y.toFixed(1);areaD+=' L '+x.toFixed(1)+','+y.toFixed(1)}
 }
 areaD+=' L '+(padL+plotW)+','+(padT+plotH)+' Z';
 
-// Y-axis labels
+// Y-axis: show packet count per bucket AND rate per second
 let gridLines='';
-for(let i=0;i<=4;i++){
-const y=padT+plotH*(i/4);
-const v=Math.round(maxCount*(1-i/4));
-gridLines+='<line class="io-grid" x1="'+padL+'" y1="'+y+'" x2="'+(padL+plotW)+'" y2="'+y+'"/>';
-gridLines+='<text class="io-axis-text" x="'+(padL-6)+'" y="'+(y+3)+'" text-anchor="end">'+v+'</text>';
-}
-// X-axis labels
-let xLabels='';
-for(let i=0;i<=4;i++){
-const x=padL+plotW*(i/4);
-const t=duration*(i/4);
-xLabels+='<text class="io-axis-text" x="'+x+'" y="'+(H-8)+'" text-anchor="middle">'+t.toFixed(1)+'s</text>';
+const yTicks=5;
+for(let i=0;i<=yTicks;i++){
+const y=padT+plotH*(i/yTicks);
+const v=Math.round(maxCount*(1-i/yTicks));
+gridLines+='<line class="io-grid" x1="'+padL+'" y1="'+y.toFixed(1)+'" x2="'+(padL+plotW)+'" y2="'+y.toFixed(1)+'"/>';
+gridLines+='<text class="io-axis-text" x="'+(padL-8)+'" y="'+(y+4).toFixed(1)+'" text-anchor="end">'+v+'</text>';
 }
 
-return '<svg class="io-graph-svg" viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="none">'+
+// X-axis: show time labels at round intervals
+let xLabels='';
+const xTicks=Math.min(10,buckets);
+for(let i=0;i<=xTicks;i++){
+const x=padL+plotW*(i/xTicks);
+const t=duration*(i/xTicks);
+xLabels+='<line class="io-grid" x1="'+x.toFixed(1)+'" y1="'+(padT+plotH)+'" x2="'+x.toFixed(1)+'" y2="'+(padT+plotH+4)+'"/>';
+xLabels+='<text class="io-axis-text" x="'+x.toFixed(1)+'" y="'+(padT+plotH+18)+'" text-anchor="middle">'+(t<1?t.toFixed(2):t.toFixed(1))+'s</text>';
+}
+
+// Axis titles
+const bucketLabel=bucketSec<1?(bucketSec*1000).toFixed(0)+'ms':bucketSec+'s';
+const yTitle='Packets per '+bucketLabel;
+
+return '<svg class="io-graph-svg" viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="xMidYMid meet">'+
 gridLines+
 '<path class="io-area" d="'+areaD+'"/>'+
 '<path class="io-line" d="'+pathD+'"/>'+
+'<line class="io-grid" x1="'+padL+'" y1="'+padT+'" x2="'+padL+'" y2="'+(padT+plotH)+'" style="stroke:var(--text3);stroke-width:1"/>'+
+'<line class="io-grid" x1="'+padL+'" y1="'+(padT+plotH)+'" x2="'+(padL+plotW)+'" y2="'+(padT+plotH)+'" style="stroke:var(--text3);stroke-width:1"/>'+
 xLabels+
-'<text class="io-axis-text" x="'+(padL-45)+'" y="'+(padT+plotH/2)+'" transform="rotate(-90 '+(padL-45)+' '+(padT+plotH/2)+')" text-anchor="middle">packets/bucket</text>'+
+// Y-axis title (rotated)
+'<text class="io-axis-text" x="18" y="'+(padT+plotH/2)+'" transform="rotate(-90 18 '+(padT+plotH/2)+')" text-anchor="middle" style="font-size:12px;font-weight:600">'+yTitle+'</text>'+
+// X-axis title
+'<text class="io-axis-text" x="'+(padL+plotW/2)+'" y="'+(H-12)+'" text-anchor="middle" style="font-size:12px;font-weight:600">Time (seconds from capture start)</text>'+
+// Peak rate annotation
+'<text class="io-axis-text" x="'+(padL+plotW-8)+'" y="'+(padT+14)+'" text-anchor="end" style="fill:var(--orange);font-weight:600">Peak: '+perSecMax.toFixed(1)+' pkts/sec</text>'+
 '</svg>';
 }
 
