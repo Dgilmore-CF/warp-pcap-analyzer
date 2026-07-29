@@ -1809,7 +1809,7 @@ html+='<div class="pcard '+cardCls+'">';
 html+='<div class="pcard-head"><div class="pcard-title">'+esc(f.title||'')+'</div><span class="pcard-badge '+badgeCls+'">'+badge+'</span></div>';
 const logs=f.what_logs_show||'';
 if(logs){
-const logHtml=esc(logs).split('\n').map(l=>/1450|panicked|Insufficient|os error 2|Failed to communicate|TIMEOUT|failed|error/i.test(l)?'<span class="err">'+l+'</span>':l).join('\n');
+const logHtml=esc(logs).split('\\n').map(l=>/1450|panicked|Insufficient|os error 2|Failed to communicate|TIMEOUT|failed|error/i.test(l)?'<span class="err">'+l+'</span>':l).join('\\n');
 html+='<div class="pcard-sublabel">What the logs show</div><div class="pcard-logs">'+logHtml+'</div>';
 }
 const exp=f.what_experienced||f.description||'';
@@ -2492,17 +2492,17 @@ const agents=(d.endpointAgents||[]).map(a=>a.name+(a.version?' '+a.version:'')).
 // helpers ---------------------------------------------------------------
 // jsPDF's built-in Helvetica/Courier are WinAnsi — sanitise glyphs they lack.
 function sane(t){return String(t==null?'':t)
-  .replace(/\u2192/g,'>').replace(/\u2190/g,'<').replace(/\u2194/g,'<>')
-  .replace(/[\u2018\u2019]/g,"'").replace(/[\u201C\u201D]/g,'"')
-  .replace(/\u2022/g,'-').replace(/\u2026/g,'...').replace(/\u00a0/g,' ')
-  .replace(/[\u2013\u2014]/g,'\u2014') // normalise dashes (em-dash IS in WinAnsi)
-  .replace(/[^\x00-\xFF\u2014]/g,'')}  // drop anything else WinAnsi can't render
+  .replace(/\\u2192/g,'>').replace(/\\u2190/g,'<').replace(/\\u2194/g,'<>')
+  .replace(/[\\u2018\\u2019]/g,"'").replace(/[\\u201C\\u201D]/g,'"')
+  .replace(/\\u2022/g,'-').replace(/\\u2026/g,'...').replace(/\\u00a0/g,' ')
+  .replace(/[\\u2013\\u2014]/g,'\\u2014') // normalise dashes (em-dash IS in WinAnsi)
+  .replace(/[^\\x00-\\xFF\\u2014]/g,'')}  // drop anything else WinAnsi can't render
 function ensure(space){if(y+space>PH-M-24){footer();doc.addPage();y=M}}
 function footer(){const p=doc.internal.getNumberOfPages();doc.setFont('helvetica','normal');doc.setFontSize(8);doc.setTextColor(...GREY);doc.text('WARP Diagnostic Debrief \u2014 '+deviceId,M,PH-28);doc.text(String(doc.internal.getCurrentPageInfo().pageNumber),PW-M,PH-28,{align:'right'})}
 function h(txt,color){ensure(30);doc.setFont('helvetica','bold');doc.setFontSize(11);doc.setTextColor(...(color||ORANGE));doc.text(txt.toUpperCase(),M,y);y+=6;doc.setDrawColor(...(color||ORANGE));doc.setLineWidth(0.8);y+=0;}
 function para(txt,opts){opts=opts||{};const size=opts.size||10;const color=opts.color||INK;doc.setFont('helvetica',opts.bold?'bold':(opts.italic?'italic':'normal'));doc.setFontSize(size);doc.setTextColor(...color);const width=opts.width||CW;const x=opts.x||M;const lines=doc.splitTextToSize(sane(txt),width);for(const ln of lines){ensure(size+4);doc.text(ln,x,y);y+=size+4}return y}
 // Wrap a block of monospaced code into lines that fit width at size.
-function codeWrap(text,width,size){doc.setFont('courier','normal');doc.setFontSize(size);const out=[];String(text==null?'':text).split('\n').forEach(l=>{doc.splitTextToSize(sane(l),width).forEach(x=>out.push(x))});return out}
+function codeWrap(text,width,size){doc.setFont('courier','normal');doc.setFontSize(size);const out=[];String(text==null?'':text).split('\\n').forEach(l=>{doc.splitTextToSize(sane(l),width).forEach(x=>out.push(x))});return out}
 function gap(n){y+=(n||8)}
 
 // ── Header band ────────────────────────────────────────────────────────
@@ -2576,7 +2576,7 @@ doc.setFont('helvetica','bold');doc.setFontSize(8.5);
 doc.setTextColor(...(c.cls==='impact'?[255,255,255]:isRoot?RED:DARK));
 doc.text(doc.splitTextToSize(c.title||'',boxW-10),cx+boxW/2,cyTop+16,{align:'center'});
 doc.setFont('helvetica','normal');doc.setFontSize(7);doc.setTextColor(...(c.cls==='impact'?[220,225,235]:GREY));
-const dl=doc.splitTextToSize((c.detail||'')+(c.sub?'\n'+c.sub:''),boxW-10);
+const dl=doc.splitTextToSize((c.detail||'')+(c.sub?'\\n'+c.sub:''),boxW-10);
 doc.text(dl.slice(0,3),cx+boxW/2,cyTop+30,{align:'center'});
 if(i<n-1){doc.setFillColor(...GREY);const ax=cx+boxW+1;const ay=cyTop+boxH/2;doc.triangle(ax,ay-3,ax,ay+3,ax+gapX-2,ay,'F')}
 cx+=boxW+gapX;
@@ -2659,7 +2659,7 @@ if(excerpts.length){
 h('Appendix \u2014 Key Log Excerpts');gap(12);
 para('Selected entries illustrating the timeline of the failure.',{size:9,italic:true,color:GREY});gap(8);
 const codeLines=[];
-excerpts.forEach(e=>{const head=(e.ts?e.ts+'  ':'')+'['+e.type+'] '+e.file;codeWrap(head,CW,7.5).forEach(x=>codeLines.push({t:'head',x}));((e.excerpt||'').split('\n').slice(0,3).join('\n')).length&&codeWrap((e.excerpt||'').split('\n').slice(0,3).join('\n'),CW,7.5).forEach(x=>codeLines.push({t:'body',x}));codeLines.push({t:'sp',x:''})});
+excerpts.forEach(e=>{const head=(e.ts?e.ts+'  ':'')+'['+e.type+'] '+e.file;codeWrap(head,CW,7.5).forEach(x=>codeLines.push({t:'head',x}));((e.excerpt||'').split('\\n').slice(0,3).join('\\n')).length&&codeWrap((e.excerpt||'').split('\\n').slice(0,3).join('\\n'),CW,7.5).forEach(x=>codeLines.push({t:'body',x}));codeLines.push({t:'sp',x:''})});
 doc.setFont('courier','normal');doc.setFontSize(7.5);
 for(const cl of codeLines){ensure(12);if(cl.t==='sp'){y+=6;continue}doc.setTextColor(...(cl.t==='head'?ORANGE:INK));doc.setFont('courier',cl.t==='head'?'bold':'normal');doc.text(cl.x,M,y);y+=10}
 }
