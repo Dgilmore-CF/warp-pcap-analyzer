@@ -47,7 +47,7 @@ export function categorizeWarpFile(filename) {
 
 	const categories = {
 		connection: {
-			patterns: ['daemon.log', 'connectivity.txt', 'warp-status.txt', 'boringtun.log', 'warp-svc.log', 'tunnel.log'],
+			patterns: ['daemon.log', 'connectivity.txt', 'warp-status.txt', 'boringtun.log', 'warp-svc.log', 'tunnel.log', 'taskdump.log', 'warp-diag-log.txt'],
 			priority: 'high',
 		},
 		dns: {
@@ -63,11 +63,11 @@ export function categorizeWarpFile(filename) {
 			priority: 'medium',
 		},
 		system: {
-			patterns: ['sysinfo.json', 'platform.txt', 'version.txt', 'date.txt', 'os-info', 'uname'],
+			patterns: ['sysinfo.json', 'platform.txt', 'version.txt', 'date.txt', 'os-info', 'uname', 'systeminfo.txt', 'wmi-health.txt', 'processes.txt', 'services.txt', 'drivers.txt', 'installed'],
 			priority: 'low',
 		},
 		performance: {
-			patterns: ['stats.log', 'warp-stats.txt', 'warp-bus-metrics.txt', 'metrics', 'perf'],
+			patterns: ['stats.log', 'warp-stats.txt', 'warp-bus-metrics.txt', 'metrics', 'perf', 'connection_stats.log', 'network-health-stats.log'],
 			priority: 'medium',
 		},
 		security: {

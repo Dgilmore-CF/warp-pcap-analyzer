@@ -10,6 +10,7 @@ export const UI_HTML = `<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>WARP & PCAP Analyzer</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js" defer></script>
 <style>
 /* ── Reset & Base ─────────────────────────────────────────────────────── */
 *{margin:0;padding:0;box-sizing:border-box}
@@ -407,6 +408,48 @@ select:focus,input:focus{border-color:var(--orange)}
 .health-banner .htitle{font-size:16px;font-weight:600;color:var(--text);margin-bottom:3px}
 .health-banner .hsub{font-size:12px;color:var(--text2)}
 
+/* Bottom line callout */
+.bottom-line{background:rgba(243,128,32,.07);border:1px solid rgba(243,128,32,.3);border-left:5px solid var(--orange);border-radius:10px;padding:16px 20px;margin-bottom:20px}
+.bottom-line .bl-label{font-size:11px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--orange);margin-bottom:6px}
+.bottom-line .bl-text{font-size:14px;line-height:1.55;color:var(--text)}
+
+/* Causal chain */
+.causal-chain{display:flex;align-items:stretch;gap:0;margin-bottom:8px;flex-wrap:wrap}
+.causal-step{flex:1;min-width:150px;display:flex;align-items:stretch}
+.causal-box{flex:1;background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px 14px;position:relative}
+.causal-box.root{border-color:var(--red);background:rgba(248,81,73,.06)}
+.causal-box.impact{background:#1a1a2e;border-color:#1a1a2e}
+.causal-stage{font-size:9px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--text3);margin-bottom:6px}
+.causal-box.impact .causal-stage{color:rgba(255,255,255,.6)}
+.causal-title{font-size:13px;font-weight:700;color:var(--text);margin-bottom:4px;line-height:1.25}
+.causal-box.root .causal-title{color:var(--red)}
+.causal-box.impact .causal-title{color:#fff}
+.causal-detail{font-size:11px;color:var(--text2);line-height:1.4}
+.causal-box.impact .causal-detail{color:rgba(255,255,255,.75)}
+.causal-arrow{display:flex;align-items:center;padding:0 8px;color:var(--orange);font-size:22px;font-weight:700;flex-shrink:0}
+.causal-note{font-size:12px;color:var(--text3);font-style:italic;margin-bottom:24px;line-height:1.5}
+
+/* Prescriptive issue card (dashboard) */
+.pcard{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px 16px;margin-bottom:12px;border-left:4px solid var(--blue)}
+.pcard.blocking{border-left-color:var(--red)}.pcard.warning{border-left-color:var(--yellow)}
+.pcard-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px}
+.pcard-title{font-size:14px;font-weight:700;color:var(--text)}
+.pcard-badge{font-size:9px;font-weight:700;letter-spacing:.5px;padding:3px 8px;border-radius:10px;white-space:nowrap;flex-shrink:0}
+.pcard-badge.blocking{background:#f8514922;color:var(--red)}
+.pcard-badge.warning{background:#d2992222;color:var(--yellow)}
+.pcard-badge.info{background:#58a6ff22;color:var(--blue)}
+.pcard-sublabel{font-size:9px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--text3);margin:8px 0 4px}
+.pcard-logs{background:var(--bg3);border-radius:5px;padding:9px 11px;font-family:var(--mono);font-size:11px;line-height:1.5;color:var(--text2);white-space:pre-wrap;word-break:break-word;overflow-x:auto}
+.pcard-logs .err{color:var(--red)}
+.pcard-exp{font-size:12.5px;color:var(--text2);line-height:1.5;margin-top:4px}
+
+/* Recommended steps */
+.rec-steps{counter-reset:rstep;margin-bottom:24px}
+.rec-step{display:flex;gap:12px;margin-bottom:14px}
+.rec-step .num{flex-shrink:0;width:24px;height:24px;border-radius:50%;background:var(--orange);color:#fff;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.rec-step .body .rs-title{font-size:13px;font-weight:700;color:var(--text);margin-bottom:3px}
+.rec-step .body .rs-text{font-size:12.5px;color:var(--text2);line-height:1.5}
+
 /* Empty states */
 .warp-empty{text-align:center;padding:60px 20px;color:var(--text3)}
 .warp-empty h4{font-size:14px;color:var(--text2);margin-bottom:8px;font-weight:600}
@@ -458,8 +501,9 @@ kbd{font-family:var(--mono);background:var(--bg3);border:1px solid var(--border)
 <span id="themeIcon">&#x2600;&#xFE0F;</span>
 </button>
 <button class="btn btn-ghost btn-sm" id="btnSessions" title="View saved sessions">Sessions</button>
+<button class="btn btn-primary btn-sm hidden" id="btnDebrief" title="Export a customer-ready WARP Diagnostic Debrief PDF">Export Debrief PDF</button>
 <select id="exportSelect" class="hidden" style="font-size:11px;padding:4px 8px">
-<option value="">Export...</option>
+<option value="">Export data...</option>
 <option value="json">JSON</option>
 <option value="csv">CSV (Packets)</option>
 <option value="har">HAR</option>
@@ -771,6 +815,8 @@ const warpTab=document.querySelector('[data-tab="warp"]');
 const hasWarp=(state.warpFiles&&state.warpFiles.length>0)||state.warp;
 if(hasWarp)warpTab.classList.remove('hidden');
 else warpTab.classList.add('hidden');
+const btnDebrief=$('btnDebrief');
+if(btnDebrief){if(hasWarp)btnDebrief.classList.remove('hidden');else btnDebrief.classList.add('hidden');}
 
 buildPacketHeader();
 renderPacketList();
@@ -1721,13 +1767,68 @@ html+=heroCard('WARP Interface','No data','No ifconfig/ipconfig parsed','');
 html+=heroCard('Capture Time',captureTime||'\u2014','');
 html+='</div>';
 
-// Findings preview (first 3 critical)
-const criticalFindings=findings.filter(f=>f.severity==='Critical').slice(0,3);
-if(criticalFindings.length>0){
-html+='<h3 style="font-size:14px;font-weight:600;margin-bottom:10px;color:var(--red)">Critical Findings</h3>';
-html+='<div style="margin-bottom:24px">';
-criticalFindings.forEach(f=>{
-html+='<div class="issue-card critical"><div class="title">'+esc(f.title||'')+'</div><div class="desc">'+esc(f.description||'')+'</div></div>';
+// ── Bottom line ──
+const bottomLine=warpAI?.bottom_line||warp?.bottomLine||'';
+if(bottomLine){
+html+='<div class="bottom-line"><div class="bl-label">Bottom Line</div><div class="bl-text">'+esc(bottomLine)+'</div></div>';
+}
+
+// ── Causal chain ──
+const chain=warp?.causalChain||[];
+if(chain.length){
+html+='<div class="causal-chain">';
+chain.forEach((c,i)=>{
+const cls=c.cls==='root'?'root':c.cls==='impact'?'impact':'';
+html+='<div class="causal-step"><div class="causal-box '+cls+'">';
+html+='<div class="causal-stage">'+esc((c.stage||['Root cause','Effect','Log symptom','User impact'][i]||'').toString())+'</div>';
+html+='<div class="causal-title">'+esc(c.title||'')+'</div>';
+if(c.detail||c.sub)html+='<div class="causal-detail">'+esc([c.detail,c.sub].filter(Boolean).join(' — '))+'</div>';
+html+='</div>';
+if(i<chain.length-1)html+='<div class="causal-arrow">\u203A</div>';
+html+='</div>';
+});
+html+='</div>';
+html+='<div class="causal-note">Fix the root cause on the left \u2014 the symptom on the right clears on its own. Restarting WARP alone will not stick until the underlying condition is resolved.</div>';
+}
+
+// ── Prescriptive issues (evidenced findings) ──
+const merged=[...(findings||[]),...(warpAI?.issues||[])];
+const seenP=new Set();let pIssues=[];for(const f of merged){const k=(f.title||'').toLowerCase();if(seenP.has(k))continue;seenP.add(k);pIssues.push(f)}
+const hasPrescriptive=pIssues.some(f=>f.what_logs_show&&(f.blocking||f.severity==='Critical'));
+if(hasPrescriptive){const GENERIC=/critical event|no active warp|interface is (missing|down)|queries returning no records/i;pIssues=pIssues.filter(f=>!(GENERIC.test(f.title||'')&&!f.what_logs_show))}
+const sevRank=f=>(f.blocking?0:1)+(f.severity==='Critical'?0:f.severity==='Warning'?1:2);
+pIssues.sort((a,b)=>sevRank(a)-sevRank(b));
+if(pIssues.length){
+html+='<h3 style="font-size:15px;font-weight:700;margin:4px 0 12px">Issues Found <span style="color:var(--text3);font-weight:400;font-size:13px">('+pIssues.length+')</span></h3>';
+pIssues.forEach(f=>{
+const sev=f.severity||'Info';const blocking=f.blocking||sev==='Critical';
+const cardCls=blocking?'blocking':sev==='Warning'?'warning':'';
+const badge=blocking?'BLOCKING':sev==='Warning'?'WARNING':'INFORMATIONAL';
+const badgeCls=blocking?'blocking':sev==='Warning'?'warning':'info';
+html+='<div class="pcard '+cardCls+'">';
+html+='<div class="pcard-head"><div class="pcard-title">'+esc(f.title||'')+'</div><span class="pcard-badge '+badgeCls+'">'+badge+'</span></div>';
+const logs=f.what_logs_show||'';
+if(logs){
+const logHtml=esc(logs).split('\n').map(l=>/1450|panicked|Insufficient|os error 2|Failed to communicate|TIMEOUT|failed|error/i.test(l)?'<span class="err">'+l+'</span>':l).join('\n');
+html+='<div class="pcard-sublabel">What the logs show</div><div class="pcard-logs">'+logHtml+'</div>';
+}
+const exp=f.what_experienced||f.description||'';
+if(exp)html+='<div class="pcard-sublabel">What you were experiencing</div><div class="pcard-exp">'+esc(exp)+'</div>';
+html+='</div>';
+});
+}
+
+// ── Recommended steps ──
+const steps=warp?.recommendedSteps||[];
+if(steps.length){
+html+='<h3 style="font-size:15px;font-weight:700;margin:20px 0 4px">Recommended Steps</h3>';
+html+='<div style="font-size:12px;color:var(--text3);font-style:italic;margin-bottom:14px">In priority order. Start at step 1.</div>';
+html+='<div class="rec-steps">';
+steps.forEach((s,i)=>{
+html+='<div class="rec-step"><div class="num">'+(i+1)+'</div><div class="body">';
+if(s.title)html+='<div class="rs-title">'+esc(s.title)+'</div>';
+if(s.body)html+='<div class="rs-text">'+esc(s.body)+'</div>';
+html+='</div></div>';
 });
 html+='</div>';
 }
@@ -2342,6 +2443,7 @@ $('analysis-screen').classList.remove('active');
 $('upload-screen').classList.add('active');
 $('btnBack').classList.add('hidden');
 exportSelect.classList.add('hidden');
+$('btnDebrief')&&$('btnDebrief').classList.add('hidden');
 state={packets:[],flows:{},stats:{},ai:null,sessionId:null,warpFiles:null,warp:null,selectedIdx:-1,filteredPackets:null,allPackets:[],sortBy:null,sortDir:'asc',timeFormat:'relative'};
 files=[];fileInput.value='';fileListEl.classList.add('hidden');analyzeBtn.disabled=true;
 progressEl.classList.remove('active');
@@ -2352,6 +2454,221 @@ $('btnSessions').onclick=()=>{
 if($('upload-screen').classList.contains('active')){loadSessions()}
 else{$('btnBack').click()}
 };
+
+// ── WARP Diagnostic Debrief PDF (client-side, jsPDF) ──────────────────
+$('btnDebrief')&&($('btnDebrief').onclick=()=>{
+try{generateDebriefPDF()}catch(e){console.error(e);toast('error','PDF export failed: '+e.message)}
+});
+
+function generateDebriefPDF(){
+const jsPDFCtor=(window.jspdf&&window.jspdf.jsPDF)||window.jsPDF;
+if(!jsPDFCtor){toast('error','PDF library still loading — try again in a moment');return}
+
+const warp=state.warp||{};
+const warpAI=state.ai?.warp?.analysis||state.ai?.warp?.fallback||{};
+const d=warp.diagnostics||{};
+const conn=warp.connection||{};
+const acct=warp.account||{};
+const dev=warp.device||{};
+const props=warp.rawProperties||{};
+const pick=(v,keys)=>{if(v&&String(v).toLowerCase()!=='unknown'&&v!=='-')return v;for(const k of(keys||[])){const p=props[k];if(p&&p!=='-'&&String(p).toLowerCase()!=='unknown')return p}return null};
+
+// ── Palette (Cloudflare brand) ──
+const ORANGE=[243,128,32], DARK=[26,26,46], INK=[45,55,72], GREY=[107,114,128], LIGHT=[248,249,250], LINE=[224,224,224];
+const RED=[196,30,58], REDBG=[255,240,240], BLUE=[62,116,255], BLUEBG=[235,241,255];
+
+const doc=new jsPDFCtor({unit:'pt',format:'letter'});
+const PW=doc.internal.pageSize.getWidth(), PH=doc.internal.pageSize.getHeight();
+const M=54; const CW=PW-M*2;
+let y=M;
+
+const deviceId=dev.host_name||dev.hostname||pick(null,['host_name','hostname','device_id'])||conn.deviceName||state.warpFiles&&(state.warpFiles.find(f=>/hostname/i.test(f.filename))?'':'')||'WARP Device';
+const user=acct.user||pick(null,['user','active_user'])||'\u2014';
+const version=pick(conn.warpVersion,['version','warp_version'])||'\u2014';
+const mode=pick(conn.mode,['mode','warp_mode'])||'\u2014';
+const platform=(dev.long_os_version||dev.platform||pick(null,['platform','os_name'])||'')+(dev.os_version&&!String(dev.long_os_version||'').includes(dev.os_version)?' (build '+ (dev.kernel_version||dev.os_version) +')':'');
+const agents=(d.endpointAgents||[]).map(a=>a.name+(a.version?' '+a.version:'')).concat((d.management||[]));
+
+// helpers ---------------------------------------------------------------
+// jsPDF's built-in Helvetica/Courier are WinAnsi — sanitise glyphs they lack.
+function sane(t){return String(t==null?'':t)
+  .replace(/\u2192/g,'>').replace(/\u2190/g,'<').replace(/\u2194/g,'<>')
+  .replace(/[\u2018\u2019]/g,"'").replace(/[\u201C\u201D]/g,'"')
+  .replace(/\u2022/g,'-').replace(/\u2026/g,'...').replace(/\u00a0/g,' ')
+  .replace(/[\u2013\u2014]/g,'\u2014') // normalise dashes (em-dash IS in WinAnsi)
+  .replace(/[^\x00-\xFF\u2014]/g,'')}  // drop anything else WinAnsi can't render
+function ensure(space){if(y+space>PH-M-24){footer();doc.addPage();y=M}}
+function footer(){const p=doc.internal.getNumberOfPages();doc.setFont('helvetica','normal');doc.setFontSize(8);doc.setTextColor(...GREY);doc.text('WARP Diagnostic Debrief \u2014 '+deviceId,M,PH-28);doc.text(String(doc.internal.getCurrentPageInfo().pageNumber),PW-M,PH-28,{align:'right'})}
+function h(txt,color){ensure(30);doc.setFont('helvetica','bold');doc.setFontSize(11);doc.setTextColor(...(color||ORANGE));doc.text(txt.toUpperCase(),M,y);y+=6;doc.setDrawColor(...(color||ORANGE));doc.setLineWidth(0.8);y+=0;}
+function para(txt,opts){opts=opts||{};const size=opts.size||10;const color=opts.color||INK;doc.setFont('helvetica',opts.bold?'bold':(opts.italic?'italic':'normal'));doc.setFontSize(size);doc.setTextColor(...color);const width=opts.width||CW;const x=opts.x||M;const lines=doc.splitTextToSize(sane(txt),width);for(const ln of lines){ensure(size+4);doc.text(ln,x,y);y+=size+4}return y}
+// Wrap a block of monospaced code into lines that fit width at size.
+function codeWrap(text,width,size){doc.setFont('courier','normal');doc.setFontSize(size);const out=[];String(text==null?'':text).split('\n').forEach(l=>{doc.splitTextToSize(sane(l),width).forEach(x=>out.push(x))});return out}
+function gap(n){y+=(n||8)}
+
+// ── Header band ────────────────────────────────────────────────────────
+doc.setFillColor(...DARK);doc.rect(0,0,PW,4,'F');
+// Cloudflare wordmark (text) + logo mark
+doc.setFont('helvetica','bold');doc.setFontSize(9);doc.setTextColor(...ORANGE);
+doc.text('CLOUDFLARE',M,y+6);
+doc.setFontSize(9);doc.setTextColor(...ORANGE);doc.text('WARP DIAGNOSTIC DEBRIEF',PW-M,y+2,{align:'right'});
+doc.setFont('helvetica','bold');doc.setFontSize(22);doc.setTextColor(...DARK);doc.text(String(deviceId),PW-M,y+26,{align:'right'});
+doc.setFont('helvetica','normal');doc.setFontSize(9);doc.setTextColor(...GREY);
+const prepared='Prepared '+new Date().toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'})+(user&&user!=='\u2014'?'  \u00b7  User '+user:'');
+doc.text(prepared,PW-M,y+40,{align:'right'});
+y+=54;
+doc.setDrawColor(...ORANGE);doc.setLineWidth(2);doc.line(M,y,PW-M,y);y+=20;
+
+// ── Device summary card ────────────────────────────────────────────────
+const rows=[['Device',String(deviceId),'User',String(user)],['WARP mode',String(mode),'WARP version',String(version)],['OS / platform',String(platform||'\u2014'),'Conflicting software',agents.length?agents.join(' \u00b7 '):'None detected']];
+const rowH=[];doc.setFontSize(9);
+let cardTop=y;
+const pad=12;const colL=M+pad, colLV=M+pad+92, colR=M+CW/2+6, colRV=M+CW/2+6+108;
+const vW1=colR-colLV-14, vW2=(M+CW-pad)-colRV;
+// pre-measure card height
+let hy=cardTop+pad+4;
+for(const r of rows){doc.setFont('helvetica','normal');const l1=doc.splitTextToSize(r[1],vW1);const l2=doc.splitTextToSize(r[3],vW2);const hh=Math.max(l1.length,l2.length)*12+6;rowH.push({hh,l1,l2,r});hy+=hh}
+const cardH=(hy-cardTop)+pad;
+doc.setFillColor(...LIGHT);doc.setDrawColor(...LINE);doc.setLineWidth(1);doc.roundedRect(M,cardTop,CW,cardH,6,6,'FD');
+let ry=cardTop+pad+8;
+doc.setFontSize(9.5);doc.setTextColor(...GREY);doc.setFont('helvetica','bold');doc.text('DEVICE SUMMARY',colL,ry-2);ry+=16;
+for(const row of rowH){
+doc.setFont('helvetica','bold');doc.setTextColor(...DARK);doc.setFontSize(9);
+doc.text(row.r[0],colL,ry);doc.text(row.r[2],colR,ry);
+doc.setFont('helvetica','normal');doc.setTextColor(...INK);
+doc.text(row.l1,colLV,ry);doc.text(row.l2,colRV,ry);
+ry+=row.hh;
+}
+y=cardTop+cardH+18;
+
+// intro line
+para('This debrief covers what we found in the WARP diagnostics for '+deviceId+'. It explains what was happening on the device, what the user was likely experiencing, and the steps to resolve it.',{color:INK});
+gap(10);
+
+// ── Bottom line callout ────────────────────────────────────────────────
+const bl=warpAI.bottom_line||warp.bottomLine||warpAI.summary||'No summary available.';
+doc.setFont('helvetica','bold');doc.setFontSize(9);doc.setTextColor(...ORANGE);
+const blLines=doc.splitTextToSize(bl,CW-pad*2-6);
+const blH=blLines.length*12+34;
+ensure(blH);
+doc.setFillColor(255,247,237);doc.setDrawColor(...ORANGE);
+doc.setLineWidth(3);doc.line(M+1,y,M+1,y+blH);
+doc.setLineWidth(0);doc.setFillColor(255,247,237);doc.rect(M+2,y,CW-2,blH,'F');
+doc.setTextColor(...ORANGE);doc.text('BOTTOM LINE',M+pad+4,y+16);
+doc.setFont('helvetica','normal');doc.setFontSize(10);doc.setTextColor(...INK);
+let by=y+30;for(const ln of blLines){doc.text(ln,M+pad+4,by);by+=12}
+y+=blH+18;
+
+// ── Causal chain diagram ───────────────────────────────────────────────
+const chain=warp.causalChain||[];
+if(chain.length){
+ensure(96);
+const n=chain.length, gapX=8, boxW=(CW-gapX*(n-1))/n, boxH=54;
+const labels=['Root cause','Effect','Log symptom','User impact'];
+let cx=M;const cyTop=y+12;
+for(let i=0;i<n;i++){
+const c=chain[i];
+const isRoot=c.cls==='root';
+doc.setFontSize(7);doc.setTextColor(...GREY);doc.setFont('helvetica','normal');
+doc.text((c.stage||labels[i]||'').toUpperCase(),cx+boxW/2,y+4,{align:'center'});
+if(isRoot){doc.setFillColor(...REDBG);doc.setDrawColor(...RED)}else if(c.cls==='impact'){doc.setFillColor(...DARK);doc.setDrawColor(...DARK)}else{doc.setFillColor(245,246,248);doc.setDrawColor(...LINE)}
+doc.setLineWidth(1);doc.roundedRect(cx,cyTop,boxW,boxH,4,4,'FD');
+doc.setFont('helvetica','bold');doc.setFontSize(8.5);
+doc.setTextColor(...(c.cls==='impact'?[255,255,255]:isRoot?RED:DARK));
+doc.text(doc.splitTextToSize(c.title||'',boxW-10),cx+boxW/2,cyTop+16,{align:'center'});
+doc.setFont('helvetica','normal');doc.setFontSize(7);doc.setTextColor(...(c.cls==='impact'?[220,225,235]:GREY));
+const dl=doc.splitTextToSize((c.detail||'')+(c.sub?'\n'+c.sub:''),boxW-10);
+doc.text(dl.slice(0,3),cx+boxW/2,cyTop+30,{align:'center'});
+if(i<n-1){doc.setFillColor(...GREY);const ax=cx+boxW+1;const ay=cyTop+boxH/2;doc.triangle(ax,ay-3,ax,ay+3,ax+gapX-2,ay,'F')}
+cx+=boxW+gapX;
+}
+y=cyTop+boxH+10;
+para('Fix the root cause on the left \u2014 the symptom on the right clears on its own. Restarting WARP alone will not stick until the underlying condition is resolved.',{size:8,italic:true,color:GREY});
+gap(14);
+}
+
+// ── Issues found ───────────────────────────────────────────────────────
+const findings=[...(warp.findings||[]),...(warpAI.issues||[])];
+// dedupe by title
+const seen=new Set();let issues=[];for(const f of findings){const k=(f.title||'').toLowerCase();if(seen.has(k))continue;seen.add(k);issues.push(f)}
+// When prescriptive findings (with log evidence) exist, drop low-value generic
+// symptoms they already explain, so the report stays focused.
+const hasPrescriptive=issues.some(f=>f.what_logs_show&&f.blocking);
+if(hasPrescriptive){const GENERIC=/critical event|no active warp|interface is (missing|down)|queries returning no records/i;issues=issues.filter(f=>!(GENERIC.test(f.title||'')&&!f.what_logs_show))}
+// sort: blocking/critical first
+const sevRank=f=>(f.blocking?0:0)+(f.severity==='Critical'?0:f.severity==='Warning'?1:2);
+issues.sort((a,b)=>sevRank(a)-sevRank(b));
+
+h('Issues Found');gap(14);
+for(const f of issues){
+const sev=f.severity||'Info';
+const blocking=f.blocking||sev==='Critical';
+ensure(70);
+// title + badge
+doc.setFont('helvetica','bold');doc.setFontSize(11);doc.setTextColor(...DARK);
+const titleLines=doc.splitTextToSize(f.title||'',CW-90);
+doc.text(titleLines,M,y);
+const badge=blocking?'BLOCKING':(sev==='Warning'?'WARNING':'INFORMATIONAL');
+const bw=doc.getTextWidth(badge)+14;
+const bx=M+CW-bw;
+if(blocking){doc.setFillColor(...REDBG);doc.setTextColor(...RED)}else if(sev==='Warning'){doc.setFillColor(255,244,224);doc.setTextColor(...ORANGE)}else{doc.setFillColor(...BLUEBG);doc.setTextColor(...BLUE)}
+doc.roundedRect(bx,y-9,bw,14,7,7,'F');doc.setFont('helvetica','bold');doc.setFontSize(7.5);doc.text(badge,bx+7,y);
+y+=titleLines.length*13+6;
+// what logs show
+const logs=f.what_logs_show||'';
+if(logs){
+doc.setFont('helvetica','bold');doc.setFontSize(7.5);doc.setTextColor(...GREY);ensure(14);doc.text('WHAT THE LOGS SHOW',M,y);y+=10;
+const codeLines=codeWrap(logs,CW-16,7.5);
+const chH=codeLines.length*10+14;ensure(chH);
+doc.setFillColor(245,246,248);doc.setDrawColor(...LINE);doc.setLineWidth(0.8);doc.roundedRect(M,y,CW,chH,4,4,'FD');
+doc.setFont('courier','normal');doc.setFontSize(7.5);doc.setTextColor(...INK);let ly=y+12;
+for(const cl of codeLines){const isErr=/1450|panicked|Insufficient|os error 2|Failed to communicate|TIMEOUT|failed/i.test(cl);doc.setTextColor(...(isErr?RED:INK));doc.text(cl,M+8,ly);ly+=10}
+y+=chH+8;
+}
+// what experienced
+const exp=f.what_experienced||f.description||'';
+if(exp){
+doc.setFont('helvetica','bold');doc.setFontSize(7.5);doc.setTextColor(...GREY);ensure(14);doc.text('WHAT YOU WERE EXPERIENCING',M,y);y+=10;
+para(exp,{color:INK});
+}
+gap(16);
+}
+
+// ── Recommended steps ──────────────────────────────────────────────────
+const steps=(warp.recommendedSteps&&warp.recommendedSteps.length?warp.recommendedSteps:null)||
+((warpAI.recommendations||[]).map(r=>({title:'',body:r})));
+if(steps&&steps.length){
+h('Recommended Steps');gap(12);
+para('In priority order. Start at step 1.',{size:9,italic:true,color:GREY});gap(8);
+steps.forEach((s,i)=>{
+ensure(30);
+doc.setFont('helvetica','bold');doc.setFontSize(10);doc.setTextColor(...ORANGE);
+doc.text((i+1)+'.',M,y);
+doc.setTextColor(...DARK);
+const head=s.title||'';
+if(head){doc.text(head,M+18,y);}
+const bodyX=M+18;
+if(head){y+=13}
+if(s.body){doc.setFont('helvetica','normal');doc.setFontSize(9.5);doc.setTextColor(...INK);const lines=doc.splitTextToSize(sane(s.body),CW-18);for(const ln of lines){ensure(13);doc.text(ln,bodyX,y,{maxWidth:CW-18});y+=12}}
+gap(8);
+});
+}
+
+// ── Appendix — key log excerpts ────────────────────────────────────────
+const excerpts=warp.keyLogExcerpts||[];
+if(excerpts.length){
+h('Appendix \u2014 Key Log Excerpts');gap(12);
+para('Selected entries illustrating the timeline of the failure.',{size:9,italic:true,color:GREY});gap(8);
+const codeLines=[];
+excerpts.forEach(e=>{const head=(e.ts?e.ts+'  ':'')+'['+e.type+'] '+e.file;codeWrap(head,CW,7.5).forEach(x=>codeLines.push({t:'head',x}));((e.excerpt||'').split('\n').slice(0,3).join('\n')).length&&codeWrap((e.excerpt||'').split('\n').slice(0,3).join('\n'),CW,7.5).forEach(x=>codeLines.push({t:'body',x}));codeLines.push({t:'sp',x:''})});
+doc.setFont('courier','normal');doc.setFontSize(7.5);
+for(const cl of codeLines){ensure(12);if(cl.t==='sp'){y+=6;continue}doc.setTextColor(...(cl.t==='head'?ORANGE:INK));doc.setFont('courier',cl.t==='head'?'bold':'normal');doc.text(cl.x,M,y);y+=10}
+}
+
+footer();
+const fname=(String(deviceId).replace(/[^\w.-]/g,'_'))+'-WARP-Debrief.pdf';
+doc.save(fname);
+toast('success','Debrief exported: '+fname);
+}
 
 // ── Export ───────────────────────────────────────────────────────────
 exportSelect.onchange=async()=>{

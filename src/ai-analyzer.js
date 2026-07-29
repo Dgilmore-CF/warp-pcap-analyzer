@@ -202,6 +202,9 @@ export async function analyzeWarpDiagnostics(ai, logFiles, pcapMeta, warpSnapsho
 
 ${warpSnapshot ? `## Pre-parsed Structured Snapshot
 Health: ${warpSnapshot.health}
+Bottom line (rule-based): ${warpSnapshot.bottomLine || '(none)'}
+Causal chain (rule-based): ${(warpSnapshot.causalChain || []).map(c => `${c.stage}: ${c.title} — ${c.detail}`).join('  →  ') || '(none)'}
+Diagnostics: resourceErrors=${warpSnapshot.diagnostics?.resourceErrors?.length || 0}, panics=${warpSnapshot.diagnostics?.runtimePanics?.length || 0} (ioDriver=${(warpSnapshot.diagnostics?.runtimePanics || []).filter(p => p.isIoDriver).length}), watchdog=${JSON.stringify(warpSnapshot.diagnostics?.watchdog || {})}, ipcFailures=${warpSnapshot.diagnostics?.ipc?.failures?.length || 0} (processPresent=${warpSnapshot.diagnostics?.ipc?.processPresent}), wmiDegraded=${warpSnapshot.diagnostics?.wmi?.degraded}, endpointAgents=${JSON.stringify((warpSnapshot.diagnostics?.endpointAgents || []).map(a => a.name + (a.version ? ' ' + a.version : '')))}, management=${JSON.stringify(warpSnapshot.diagnostics?.management || [])}
 Connection: ${JSON.stringify(warpSnapshot.connection)}
 Account: ${JSON.stringify(warpSnapshot.account)}
 Device: ${JSON.stringify({ platform: warpSnapshot.device.platform, version: warpSnapshot.connection.warpVersion, captureTime: warpSnapshot.device.captureTime })}
@@ -210,7 +213,7 @@ DNS: ${JSON.stringify(warpSnapshot.network.dns)}
 Settings: ${JSON.stringify(warpSnapshot.settings).substring(0, 1500)}
 Posture: ${(warpSnapshot.posture.checks || []).length} checks, ${(warpSnapshot.posture.checks || []).filter(c => c.passed === false).length} failed
 Timeline (first 30 events): ${JSON.stringify((warpSnapshot.timeline || []).slice(0, 30))}
-Pre-detected findings: ${JSON.stringify(warpSnapshot.findings || [])}
+Pre-detected findings: ${JSON.stringify((warpSnapshot.findings || []).map(f => ({ severity: f.severity, title: f.title, category: f.category })))}
 ` : ''}
 
 ## Files: ${logFiles.map(f => `${f.filename}(${f.category})`).join(', ')}
@@ -221,17 +224,23 @@ ${truncatedContext}
 
 Use the structured snapshot as your primary source of truth. The raw logs provide context but the snapshot has already extracted the key facts. Focus on correlating events across files, identifying root causes, and providing actionable remediation.
 
+Write for an end customer as a "WARP Diagnostic Debrief". Distinguish the ROOT CAUSE from downstream SYMPTOMS — do not report a symptom (e.g. "IPC os error 2") as the root cause when the logs show an upstream cause (e.g. host resource exhaustion). Agree with the rule-based bottom line and causal chain unless the raw logs contradict them.
+
 Provide your analysis as JSON:
 {
   "summary": "Brief overall assessment",
+  "bottom_line": "2-4 sentence plain-English explanation for the customer: what happened, what they experienced, and the single most important fix. Separate root cause from symptom.",
   "health_status": "Healthy|Degraded|Critical",
   "issues": [
     {
       "severity": "Critical|Warning|Info",
-      "category": "Connection|DNS|Performance|Configuration|Security|Network",
+      "blocking": true,
+      "category": "Connection|DNS|Performance|Configuration|Security|Network|System",
       "title": "Issue title",
       "description": "Detailed description",
-      "root_cause": "Root cause analysis",
+      "what_logs_show": "The specific verbatim/near-verbatim log lines that evidence this issue",
+      "what_experienced": "Plain-English description of what the user was experiencing",
+      "root_cause": "Root cause analysis (the upstream cause, not the symptom)",
       "remediation": "1. Step one 2. Step two",
       "affected_files": ["daemon.log"],
       "timestamps": ["2024-01-01T00:00:00"],

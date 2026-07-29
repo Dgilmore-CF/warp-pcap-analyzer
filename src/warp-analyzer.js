@@ -18,7 +18,7 @@
 // ── Log severity classification ────────────────────────────────────────────────
 
 const SEVERITY_PATTERNS = {
-	critical: [/\bFATAL\b/i, /\bCRIT\b/i, /\bCRITICAL\b/i, /\bpanic\b/i, /unreachable\b/i],
+	critical: [/\bFATAL\b/i, /\bCRIT\b/i, /\bCRITICAL\b/i, /\bpanic(?:ked|king)?\b/i],
 	error: [/\bERROR\b/, /\bERR\b/, /\bfailed\b/i, /\bfailure\b/i, /\bexception\b/i, /cannot\s+\w+/i, /unable\s+to/i, /refused\b/i],
 	warning: [/\bWARN(ING)?\b/i, /\btimeout\b/i, /\bretry(ing)?\b/i, /\bdeprecated\b/i, /\bdegraded\b/i],
 	info: [/\bINFO\b/i, /\bNOTICE\b/i],
@@ -70,6 +70,21 @@ export function analyzeWarpBundle(files) {
 		posture: { checks: [] },
 		tunnel: {},
 		mdm: null,
+		diagnostics: {
+			evidence: [],
+			resourceErrors: [],
+			runtimePanics: [],
+			watchdog: { hangEvents: 0, forcedRestarts: 0, panicCount: 0, maxReportedHangCount: 0 },
+			ipc: { failures: [], affectedFiles: [], processPresent: false },
+			wmi: { degraded: false, timeouts: [], errors: [] },
+			collectionTimeouts: [],
+			socketErrors: [],
+			transport: { masqueFailures: 0, h2Successes: 0, fallbacks: [] },
+			ipv6Failures: [],
+			endpointAgents: [],
+		},
+		causalChain: [],
+		bottomLine: '',
 		timeline: [],
 		files: [],
 		findings: [],
@@ -92,6 +107,7 @@ export function analyzeWarpBundle(files) {
 	// Populates snapshot.rawProperties so the dashboard can find fields
 	// regardless of which file they originated in.
 	extractUniversalKeyValues(files, snapshot);
+	analyzeDiagnosticSignals(files, snapshot);
 
 	// Pass 3 — fill in gaps using the flat property map
 	fillGapsFromRaw(snapshot);
@@ -101,11 +117,372 @@ export function analyzeWarpBundle(files) {
 
 	// Generate rule-based findings from the snapshot
 	snapshot.findings = deriveFindings(snapshot, files);
+	buildProfessionalSummary(snapshot);
 
 	// Assign health status
 	snapshot.health = computeHealth(snapshot.findings);
 
 	return snapshot;
+}
+
+function addDiagnosticEvidence(snap, file, lineNumber, type, excerpt) {
+	const key = `${file.filename}:${lineNumber}:${type}`;
+	const existing = snap.diagnostics.evidence.find(e => e.key === key);
+	if (existing) return existing.id;
+
+	const id = `E${String(snap.diagnostics.evidence.length + 1).padStart(4, '0')}`;
+	snap.diagnostics.evidence.push({
+		id,
+		key,
+		type,
+		file: file.filename,
+		lineStart: lineNumber,
+		lineEnd: lineNumber,
+		timestamp: extractTimestamp(excerpt).str,
+		excerpt: excerpt.trim().substring(0, 700),
+	});
+	return id;
+}
+
+// ── Diagnostic signal analysis ─────────────────────────────────────────────────
+// Scans the raw log/text files for the high-signal failure signatures that drive
+// a prescriptive, root-cause-oriented debrief (Windows resource exhaustion,
+// watchdog hang/restart loops, IPC pipe loss, WMI degradation, collection
+// timeouts, captive-portal probe failures, endpoint-security agents, etc.).
+
+// Endpoint-security / kernel-driver agents that commonly leak kernel pool or
+// insert WFP filter layers that interfere with WARP.
+const ENDPOINT_AGENT_SIGNATURES = [
+	{ re: /crowdstrike|csfalcon|falcon sensor|csagent/i, name: 'CrowdStrike Falcon', kind: 'EDR', kernel: true },
+	{ re: /rapid7|insight agent|ir_agent/i, name: 'Rapid7 Insight Agent', kind: 'EDR', kernel: true },
+	{ re: /carbon\s?black|cbdefense|cb\.exe/i, name: 'Carbon Black', kind: 'EDR', kernel: true },
+	{ re: /sentinelone|sentinel agent/i, name: 'SentinelOne', kind: 'EDR', kernel: true },
+	{ re: /cylance/i, name: 'Cylance', kind: 'EDR', kernel: true },
+	{ re: /mcafee|trellix/i, name: 'McAfee/Trellix', kind: 'AV', kernel: true },
+	{ re: /symantec|sep\b|norton/i, name: 'Symantec Endpoint Protection', kind: 'AV', kernel: true },
+	{ re: /trend\s?micro|tmccsf/i, name: 'Trend Micro', kind: 'AV', kernel: true },
+	{ re: /sophos/i, name: 'Sophos', kind: 'AV', kernel: true },
+	{ re: /eset/i, name: 'ESET', kind: 'AV', kernel: true },
+	{ re: /zscaler/i, name: 'Zscaler', kind: 'Proxy/ZTNA', kernel: true },
+	{ re: /netskope/i, name: 'Netskope', kind: 'Proxy/ZTNA', kernel: true },
+	{ re: /cisco\s?(secure|umbrella|anyconnect)|acumbrella/i, name: 'Cisco Secure Client / Umbrella', kind: 'Proxy/VPN', kernel: true },
+	{ re: /palo\s?alto|globalprotect|gpsvc/i, name: 'Palo Alto GlobalProtect', kind: 'VPN', kernel: true },
+	{ re: /forticlient|fortinet/i, name: 'FortiClient', kind: 'VPN', kernel: true },
+];
+
+// Co-management / MDM signatures.
+const MANAGEMENT_SIGNATURES = [
+	{ re: /configuration manager client|ccmexec|sccm/i, name: 'SCCM / Configuration Manager' },
+	{ re: /intune|microsoft policy platform|ms policy platform/i, name: 'Microsoft Intune' },
+	{ re: /jamf/i, name: 'Jamf' },
+	{ re: /workspace\s?one|airwatch/i, name: 'Workspace ONE' },
+	{ re: /kandji/i, name: 'Kandji' },
+];
+
+// Resolve the most useful version string for a detected endpoint agent.
+// Prefers the primary "sensor/agent platform" build over sub-component versions.
+function detectAgentVersion(sig, content) {
+	const preferred = {
+		'CrowdStrike Falcon': [/CrowdStrike Sensor Platform\s+([\d.]+)/i, /Falcon Sensor[^\n]*?([\d.]+)/i, /CrowdStrike[^\n]*?([\d.]+)/i],
+		'Rapid7 Insight Agent': [/Rapid7 Insight Agent\s+([\d.]+)/i],
+		'SentinelOne': [/SentinelOne[^\n]*?([\d.]+)/i],
+		'Zscaler': [/Zscaler[^\n]*?([\d.]+)/i],
+		'Netskope': [/Netskope[^\n]*?([\d.]+)/i],
+		'Cisco Secure Client / Umbrella': [/(?:Cisco Secure Client|AnyConnect|Umbrella)[^\n]*?([\d.]+)/i],
+		'Palo Alto GlobalProtect': [/GlobalProtect[^\n]*?([\d.]+)/i],
+		'FortiClient': [/FortiClient[^\n]*?([\d.]+)/i],
+	};
+	const patterns = preferred[sig.name] || [new RegExp(sig.name.split(/[ /]/)[0] + '[^\\n]*?([\\d.]+\\.[\\d.]+)', 'i')];
+	for (const re of patterns) {
+		const m = content.match(re);
+		if (m && /\d+\.\d+/.test(m[1])) return m[1].replace(/\.$/, '');
+	}
+	return null;
+}
+
+function analyzeDiagnosticSignals(files, snap) {
+	const diag = snap.diagnostics;
+	const version = snap.connection.warpVersion || '';
+
+	// Real logged-in user from qwinsta / user-sessions (more reliable than the
+	// keyring "WARPSecret" artifact that leaks into universal key/value scan).
+	const sessFile = files.find(f => /user-sessions\.txt|qwinsta|who\.txt|users\.txt/i.test(f.filename));
+	if (sessFile) {
+		for (const line of sessFile.content.split('\n')) {
+			// ">console  cachambers  1  Active" — active console session
+			const m = line.match(/^[>\s]*(?:console|rdp-tcp#?\d*|:\d+|tty\d+|seat\d+)\s+([A-Za-z][\w.\\-]{1,40})\s+\d+\s+(?:Active|Conn)/i);
+			if (m && !/^services$/i.test(m[1])) { snap.diagnostics.loginUser = m[1]; break; }
+		}
+	}
+
+	for (const file of files) {
+		if (!file.content) continue;
+		const bn = file.filename.toLowerCase().split('/').pop().split('\\').pop();
+		const isLog = bn.endsWith('.log') || bn === 'warp-diag-log.txt';
+		const lines = file.content.split('\n');
+		// For very large logs, scanning every line is fine here — patterns are cheap
+		// and we cap evidence capture per type below.
+
+		for (let i = 0; i < lines.length; i++) {
+			const line = lines[i];
+			if (!line) continue;
+			const lineNum = i + 1;
+
+			// ---- Windows kernel resource exhaustion (error 1450 / WSAENOBUFS) ----
+			if (/\b(?:code:\s*)?1450\b/.test(line) || /Insufficient system resources/i.test(line) || /\bWSAENOBUFS\b/i.test(line)) {
+				diag.resourceErrors.push({ file: file.filename, line: lineNum, ts: extractTimestamp(line).str, text: line.trim().substring(0, 400) });
+				if (diag.resourceErrors.length <= 5) addDiagnosticEvidence(snap, file, lineNum, 'resource_exhaustion', line);
+			}
+			// Other socket/handle exhaustion signals
+			if (/\b(?:code:\s*)?10055\b/.test(line) || /No buffer space available/i.test(line)) {
+				diag.socketErrors.push({ file: file.filename, line: lineNum, kind: 'WSAENOBUFS', text: line.trim().substring(0, 300) });
+			}
+			if (/\b(?:code:\s*)?10013\b/.test(line) || /\bWSAEACCES\b/i.test(line) || /forbidden by its access permissions/i.test(line)) {
+				diag.socketErrors.push({ file: file.filename, line: lineNum, kind: 'WSAEACCES', text: line.trim().substring(0, 300) });
+			}
+
+			// ---- Runtime panics ----
+			if (/panicked at/i.test(line)) {
+				const loc = (line.match(/panicked at\s+([^\s:]+(?::\d+:\d+)?)/i) || [])[1] || '';
+				const msgLine = (lines[i + 1] || '').trim();
+				diag.runtimePanics.push({
+					file: file.filename, line: lineNum, ts: extractTimestamp(line).str,
+					location: loc, message: (msgLine || line).substring(0, 300),
+					isIoDriver: /io[\\/]driver\.rs/i.test(line) || /polling the I\/O driver/i.test(msgLine),
+					isWatchdog: /watchdog/i.test(line) || /watchdog/i.test(msgLine) || /bus has been hung/i.test(msgLine),
+				});
+				diag.watchdog.panicCount++;
+				if (diag.runtimePanics.length <= 6) addDiagnosticEvidence(snap, file, lineNum, 'panic', line + '\n' + msgLine);
+			}
+
+			// ---- Watchdog hang / restart loop ----
+			if (/hung daemon|hung for too long|Watchdog reports hung|hang_count|Process has been hung/i.test(line)) {
+				diag.watchdog.hangEvents++;
+				const hc = line.match(/hang_count=(\d+)/);
+				if (hc) diag.watchdog.maxReportedHangCount = Math.max(diag.watchdog.maxReportedHangCount, parseInt(hc[1], 10));
+			}
+			if (/Watchdog is shutting down an overly hung daemon/i.test(line)) {
+				diag.watchdog.forcedRestarts++;
+				if (diag.watchdog.forcedRestarts <= 5) addDiagnosticEvidence(snap, file, lineNum, 'watchdog_restart', line);
+			}
+			if (/Starting warp service/i.test(line)) {
+				diag.watchdog.serviceStarts = (diag.watchdog.serviceStarts || 0) + 1;
+			}
+
+			// ---- IPC named pipe absence ----
+			if (/Failed to communicate with WARP service over IPC/i.test(line) || /IPC.*os error 2/i.test(line) || /cannot find the file specified.*os error 2/i.test(line)) {
+				diag.ipc.failures.push({ file: file.filename, line: lineNum, text: line.trim().substring(0, 300) });
+				if (bn.startsWith('warp-') || bn === 'daemon_info_collection_error.txt') {
+					if (!diag.ipc.affectedFiles.includes(file.filename)) diag.ipc.affectedFiles.push(file.filename);
+				}
+				if (diag.ipc.failures.length <= 3) addDiagnosticEvidence(snap, file, lineNum, 'ipc_failure', line);
+			}
+
+			// ---- WMI degradation ----
+			if (/WMI Probe:\s*TIMEOUT/i.test(line) || /COM subsystem (is )?(likely )?degraded/i.test(line)) {
+				diag.wmi.degraded = true;
+				diag.wmi.timeouts.push({ file: file.filename, line: lineNum, text: line.trim().substring(0, 200) });
+			}
+			if (/WMI repository verification failed/i.test(line) || /0x80041003/i.test(line)) {
+				diag.wmi.degraded = true;
+				diag.wmi.errors.push({ file: file.filename, line: lineNum, text: line.trim().substring(0, 200) });
+			}
+
+			// ---- Collection command timeouts (systeminfo, Get-Service, etc.) ----
+			if (/Command timed out: deadline has elapsed/i.test(line)) {
+				diag.collectionTimeouts.push({ file: file.filename });
+			}
+
+			// ---- Captive portal probe failures ----
+			if (/captive_portal/i.test(line) || bn.startsWith('captive-portal')) {
+				if (/Failed HTTP request|HTTPS test request failed|TimedOut|PermissionDenied|NetworkUnreachable/i.test(line)) {
+					diag.captivePortal = diag.captivePortal || { failures: 0, recovered: false, firstTs: '', lastFailTs: '', recoveredTs: '' };
+					diag.captivePortal.failures++;
+					const ts = extractTimestamp(line).str;
+					if (ts) { if (!diag.captivePortal.firstTs) diag.captivePortal.firstTs = ts; diag.captivePortal.lastFailTs = ts; }
+				}
+				if (/Captive portal detection completed|NoCaptivePortalDetected/i.test(line)) {
+					diag.captivePortal = diag.captivePortal || { failures: 0, recovered: false, firstTs: '', lastFailTs: '', recoveredTs: '' };
+					diag.captivePortal.recovered = true;
+					diag.captivePortal.recoveredTs = extractTimestamp(line).str;
+				}
+			}
+			if (/NetworkUnreachable.*(?:\[|:)[0-9a-f:]+\]?:\d+/i.test(line) && /2606:4700|:80|:443/i.test(line)) {
+				diag.ipv6Failures.push({ file: file.filename, line: lineNum });
+			}
+
+			// ---- Transport (MASQUE/h2 fallback) ----
+			if (/masque/i.test(line) && /(fail|error|fallback|falling back)/i.test(line)) {
+				diag.transport.masqueFailures++;
+				diag.transport.fallbacks.push(line.trim().substring(0, 160));
+			}
+
+			if (i > 60000) break; // hard safety cap per file
+		}
+
+		// ---- Endpoint agents & management from inventory-style files ----
+		if (/installed_applications|antivirus|services\.txt|drivers\.txt|processes\.txt|com-api-adapters/i.test(bn)) {
+			for (const sig of ENDPOINT_AGENT_SIGNATURES) {
+				if (!sig.re.test(file.content)) continue;
+				const existing = diag.endpointAgents.find(a => a.name === sig.name);
+				const version = detectAgentVersion(sig, file.content);
+				if (existing) {
+					if (!existing.version && version) existing.version = version;
+				} else {
+					diag.endpointAgents.push({ name: sig.name, kind: sig.kind, kernel: sig.kernel, version, source: bn });
+				}
+			}
+			for (const sig of MANAGEMENT_SIGNATURES) {
+				if (sig.re.test(file.content)) {
+					diag.management = diag.management || [];
+					if (!diag.management.includes(sig.name)) diag.management.push(sig.name);
+				}
+			}
+		}
+	}
+
+	// IPC process presence: warp-svc / CloudflareWARP in the process list while
+	// IPC is failing = "process alive but pipe gone".
+	const procFile = files.find(f => /processes\.txt|tasklist/i.test(f.filename));
+	if (procFile && /warp-svc|CloudflareWARP|warp_svc/i.test(procFile.content)) {
+		diag.ipc.processPresent = true;
+		// Find the warp-svc line and extract the largest standalone integer that
+		// looks like a PID (Windows `ps`/tasklist puts PID before the image name).
+		const procLine = procFile.content.split('\n').find(l => /warp-svc/i.test(l)) || '';
+		const nums = (procLine.match(/\b(\d{2,7})\b/g) || []).map(n => parseInt(n, 10));
+		// PID is the last number before the "warp-svc" token
+		const idx = procLine.toLowerCase().indexOf('warp-svc');
+		const before = procLine.substring(0, idx);
+		const beforeNums = (before.match(/\b(\d{2,7})\b/g) || []);
+		if (beforeNums.length) diag.ipc.pid = beforeNums[beforeNums.length - 1];
+		else if (nums.length) diag.ipc.pid = String(nums[nums.length - 1]);
+	}
+
+	// Deduplicate collection timeouts by file
+	diag.collectionTimeoutFiles = [...new Set(diag.collectionTimeouts.map(t => t.file.split(/[\\/]/).pop()))];
+
+	// Endpoint-security agents also frequently appear in antivirus.txt (SecurityCenter2)
+	// Record WARP version-derived context for later steps.
+	if (version) diag.warpVersion = version;
+}
+
+// ── Causal chain + prescriptive summary ────────────────────────────────────────
+// Builds the root-cause → effect → symptom → user-impact chain, a plain-English
+// "bottom line", and the ordered recommended steps that make up the debrief.
+
+function buildProfessionalSummary(snap) {
+	const d = snap.diagnostics;
+	const steps = [];
+	let bottomLine = '';
+	const chain = [];
+
+	const hasResourceExhaustion = d.resourceErrors.length > 0;
+	const ioDriverPanic = d.runtimePanics.some(p => p.isIoDriver);
+	const watchdogLoop = d.watchdog.forcedRestarts > 0 || d.watchdog.panicCount > 0 || d.watchdog.hangEvents > 5;
+	const ipcGone = d.ipc.failures.length > 0;
+	const wmiDegraded = d.wmi.degraded;
+	const kernelAgents = d.endpointAgents.filter(a => a.kernel);
+
+	// Scenario A — the classic host resource exhaustion cascade
+	if (hasResourceExhaustion || (ioDriverPanic && watchdogLoop)) {
+		chain.push({
+			stage: 'Root cause', title: 'Windows error 1450',
+			detail: 'Insufficient system resources', sub: 'Kernel pool / handle exhaustion', cls: 'root',
+		});
+		chain.push({
+			stage: 'Effect', title: ioDriverPanic ? 'Tokio I/O driver panics' : 'WARP daemon I/O stalls',
+			detail: 'WARP daemon main loop hangs',
+			sub: d.watchdog.forcedRestarts > 0 ? `Watchdog forces ${d.watchdog.forcedRestarts} restart${d.watchdog.forcedRestarts === 1 ? '' : 's'}` : 'Watchdog intervenes', cls: 'effect',
+		});
+		chain.push({
+			stage: 'Log symptom', title: 'IPC: os error 2',
+			detail: '"The system cannot find the file specified."', sub: '', cls: 'symptom',
+		});
+		chain.push({
+			stage: 'User impact', title: 'No WARP connectivity',
+			detail: 'Client shows disconnected', sub: 'Cannot reconnect', cls: 'impact',
+		});
+
+		const restartTxt = d.watchdog.forcedRestarts > 0 ? ` and left it unresponsive after ${d.watchdog.forcedRestarts} forced restart${d.watchdog.forcedRestarts === 1 ? '' : 's'}` : '';
+		bottomLine = `The Windows host ran out of kernel system resources (error 1450), which crashed the WARP daemon's I/O subsystem${restartTxt}. WARP itself was healthy — a reboot will restore connectivity immediately. The real fix is identifying which kernel-level driver is leaking system resources` +
+			(kernelAgents.length ? `, most likely one of the endpoint security agents on this machine (${kernelAgents.map(a => a.name).join(', ')}).` : '.');
+
+		steps.push({
+			title: 'Reboot the device.',
+			body: 'This clears the exhausted kernel pool and restores WARP connectivity immediately. Do not attempt to restart only the WARP service — the host resource condition will cause it to hang again within minutes.',
+		});
+		steps.push({
+			title: 'After reboot, confirm WARP connects and stays connected.',
+			body: 'Open the Cloudflare WARP tray icon and verify it shows "Connected." Browse to cloudflare.com/cdn-cgi/trace and confirm warp=on and gateway=on.',
+		});
+		steps.push({
+			title: 'Watch for recurrence.',
+			body: 'If the machine degrades again within an hour or two, the resource leak is ongoing. Note the elapsed time between reboot and the next connectivity loss — this is useful data for escalation.',
+		});
+		steps.push({
+			title: 'Monitor kernel memory during degradation.',
+			body: 'Open Task Manager → Performance → Memory and, in Resource Monitor (resmon.exe), watch Nonpaged pool. If it climbs continuously rather than leveling off, a kernel driver is leaking. Run poolmon.exe (Windows Driver Kit) to identify the leaking pool tag — look for the tag whose Bytes column keeps growing.',
+		});
+		if (kernelAgents.length) {
+			steps.push({
+				title: 'Isolate the leaking driver.',
+				body: `${kernelAgents.map(a => a.name).join(', ')}${kernelAgents.length ? ' and the WARP WFP network filter' : ''} all load kernel components and are the most likely candidates. Work with your endpoint security team to test with each agent temporarily suspended (per your org's exception process) to isolate the source. Windows Event ID 2019 (nonpaged pool) or 2020 (paged pool) in the System log confirms pool depletion and may name the allocation owner.`,
+			});
+			const cs = kernelAgents.find(a => /crowdstrike/i.test(a.name));
+			if (cs) {
+				steps.push({
+					title: 'Upgrade CrowdStrike Falcon if behind on sensor version.',
+					body: `The device is running sensor ${cs.version || '(version not captured)'}. Check against the latest generally available sensor; known pool-leak issues have been addressed in recent releases.`,
+				});
+			}
+		}
+	}
+	// Scenario B — WARP disconnected without host resource exhaustion
+	else if ((snap.connection.status || '').toLowerCase().match(/disconnect|disabled|error/) || ipcGone) {
+		chain.push({ stage: 'Root cause', title: 'WARP service not reachable', detail: ipcGone ? 'IPC pipe unavailable' : 'Tunnel not established', sub: '', cls: 'root' });
+		chain.push({ stage: 'Effect', title: 'Daemon/UI cannot communicate', detail: 'Status queries fail', sub: '', cls: 'effect' });
+		chain.push({ stage: 'Log symptom', title: ipcGone ? 'IPC: os error 2' : 'Disconnected', detail: '', sub: '', cls: 'symptom' });
+		chain.push({ stage: 'User impact', title: 'No WARP connectivity', detail: 'Client shows disconnected', sub: '', cls: 'impact' });
+		bottomLine = 'WARP is not connected at capture time. Restart the WARP service and confirm reconnection; if it fails to re-establish, review the daemon log and network reachability to the Cloudflare edge.';
+		steps.push({ title: 'Restart the WARP service.', body: 'From the tray icon disconnect and reconnect, or restart the CloudflareWARP service. Confirm the client reaches "Connected".' });
+		steps.push({ title: 'Verify reachability.', body: 'Confirm UDP/443 (and QUIC) egress to the Cloudflare edge is permitted and that DNS resolves the client/gateway endpoints.' });
+		steps.push({ title: 'Re-register if needed.', body: 'If authentication or registration errors persist, re-register the device against your Zero Trust organization.' });
+	}
+	// Scenario C — healthy / minor
+	else {
+		bottomLine = snap.findings && snap.findings.some(f => f.severity === 'Warning')
+			? 'WARP is connected but shows degraded signals. Review the findings below; none are service-down blocking issues at capture time.'
+			: 'WARP appears healthy at capture time. No blocking issues were detected in the diagnostics.';
+		steps.push({ title: 'No action required.', body: 'The tunnel is operating normally. Keep the client updated and re-capture a fresh warp-diag if symptoms recur.' });
+	}
+
+	// MDM step is appended for any managed/co-managed device without mdm.xml
+	if ((d.management && d.management.length) && !snap.mdm) {
+		steps.push({
+			title: 'Consider deploying WARP via MDM policy.',
+			body: `The device is managed by ${d.management.join(' and ')} but no Cloudflare mdm.xml was found. Push mdm.xml (organization, service mode, split-tunnel rules) to lock the configuration and simplify future troubleshooting. See Cloudflare Zero Trust: Deploy WARP via MDM.`,
+		});
+	}
+
+	snap.causalChain = chain;
+	snap.bottomLine = bottomLine;
+	snap.recommendedSteps = steps;
+
+	// Timeline of the failure (key excerpts) for the appendix
+	snap.keyLogExcerpts = buildKeyLogExcerpts(snap);
+}
+
+function buildKeyLogExcerpts(snap) {
+	const ev = snap.diagnostics.evidence || [];
+	// Prefer the highest-signal evidence types in a sensible order
+	const order = ['resource_exhaustion', 'panic', 'watchdog_restart', 'ipc_failure'];
+	const sorted = [...ev].sort((a, b) => {
+		const oa = order.indexOf(a.type); const ob = order.indexOf(b.type);
+		return (oa === -1 ? 99 : oa) - (ob === -1 ? 99 : ob);
+	});
+	return sorted.slice(0, 12).map(e => ({
+		ts: e.timestamp || '', type: e.type, file: e.file.split(/[\\/]/).pop(), excerpt: e.excerpt,
+	}));
 }
 
 // Scan every file for "key: value" or "key = value" pairs and build a flat map.
@@ -173,7 +550,14 @@ function fillGapsFromRaw(snap) {
 	a.team = a.team || tryKeys(['team', 'team_name', 'organization', 'organisation', 'org']);
 	a.accountId = a.accountId || tryKeys(['account_id', 'accountid', 'registered_account_id']);
 	a.deviceId = a.deviceId || tryKeys(['device_id', 'deviceid']);
-	a.user = a.user || tryKeys(['user', 'email', 'user_email', 'user_id']);
+	// Prefer the real logged-in console user (qwinsta) over keyring artifacts
+	// like "WARPSecret" that leak into the universal key/value scan.
+	const badUsers = /^(warpsecret|system|none|n\/a|-)$/i;
+	if (snap.diagnostics && snap.diagnostics.loginUser) a.user = snap.diagnostics.loginUser;
+	if (!a.user || badUsers.test(a.user)) {
+		const cand = tryKeys(['user', 'email', 'user_email', 'user_id', 'active_user', 'username']);
+		if (cand && !badUsers.test(cand)) a.user = cand;
+	}
 	a.registration = a.registration || tryKeys(['registration', 'registered', 'registration_status']);
 	a.publicKey = a.publicKey || tryKeys(['public_key', 'publickey']);
 	a.license = a.license || tryKeys(['license', 'license_type']);
@@ -1279,6 +1663,131 @@ function extractTimestamp(line) {
 
 function deriveFindings(snap, files) {
 	const findings = [];
+	const d = snap.diagnostics;
+
+	// ── Prescriptive diagnostic findings (debrief-style) ───────────────────────
+	// These carry extra fields consumed by the UI/PDF debrief:
+	//   what_logs_show  — verbatim/near-verbatim log evidence
+	//   what_experienced — plain-English description of user impact
+
+	// 1) Windows kernel resource exhaustion (error 1450)
+	if (d.resourceErrors.length > 0) {
+		const first = d.resourceErrors[0];
+		const logLines = [];
+		if (first) logLines.push(`${first.ts || ''} ERROR: unexpected error when polling the I/O driver: Os { code: 1450, message: "Insufficient system resources exist to complete the requested service." }`.trim());
+		if (d.watchdog.forcedRestarts > 0) logLines.push(`watchdog: Process has been hung for too long, restarting it manually`);
+		logLines.push(`-- ${d.watchdog.hangEvents} "hung daemon" events, ${d.watchdog.forcedRestarts} forced restart(s), ${d.watchdog.panicCount} panic(s) total --`);
+		if (d.collectionTimeoutFiles && d.collectionTimeoutFiles.length) logLines.push(`${d.collectionTimeoutFiles.slice(0, 4).join(', ')} — timed out at 30s`);
+		if (d.wmi.degraded) logLines.push('WMI health probe: TIMEOUT (COM subsystem degraded)');
+		findings.push({
+			severity: 'Critical', blocking: true, category: 'System',
+			title: 'Windows kernel resource exhaustion (error 1450)',
+			description: `${d.resourceErrors.length} occurrence(s) of Windows error 1450 (insufficient system resources). The host ran out of kernel nonpaged pool or handle capacity, cascading into WARP, WMI and PowerShell.`,
+			what_logs_show: logLines.join('\n'),
+			what_experienced: 'The whole machine was degrading — applications sluggish, management tools stalling. WARP appeared connected briefly after each restart, then dropped and could not recover.',
+			root_cause: 'The Windows host exhausted kernel memory (nonpaged pool) or handle capacity — most often caused by a leaking kernel-mode driver (endpoint security agent or network filter).',
+			remediation: '1. Reboot to clear the exhausted kernel pool 2. Monitor Nonpaged pool in Resource Monitor during degradation 3. Use poolmon.exe to find the leaking pool tag 4. Isolate the offending kernel driver (EDR/AV/WFP) 5. Update the offending agent',
+			evidence_keywords: ['1450', 'Insufficient system resources', 'I/O driver'],
+			affected_files: [...new Set(d.resourceErrors.map(e => e.file))],
+		});
+	}
+
+	// 2) WARP daemon hang / restart / panic loop
+	if (d.watchdog.forcedRestarts > 0 || (d.watchdog.panicCount > 0 && d.watchdog.hangEvents > 3)) {
+		const logLines = [];
+		if (d.warpVersion) logLines.push(`INFO warp_svc: Starting warp service version=${d.warpVersion}`);
+		logLines.push(`WARN watchdog: hung daemon (hang events: ${d.watchdog.hangEvents}${d.watchdog.maxReportedHangCount ? `, max hang_count=${d.watchdog.maxReportedHangCount}` : ''})`);
+		const wd = d.runtimePanics.find(p => p.isWatchdog);
+		if (wd) logLines.push(`ERROR: panicked at ${wd.location} — ${wd.message}`);
+		findings.push({
+			severity: 'Critical', blocking: true, category: 'Connection',
+			title: 'WARP daemon in a hang/restart/panic loop',
+			description: `The watchdog recorded ${d.watchdog.hangEvents} hang event(s), ${d.watchdog.panicCount} panic(s) and ${d.watchdog.forcedRestarts} forced restart(s). Each restart briefly restored the connection before hanging again.`,
+			what_logs_show: logLines.join('\n'),
+			what_experienced: "WARP's internal watchdog detected the main processing loop had stalled and restarted the service. Each restart briefly restored connectivity, but the underlying host condition persisted and the daemon hung again. After the final crash the IPC pipe was never recreated.",
+			root_cause: 'The daemon main loop stalled repeatedly because of the underlying host resource condition; the watchdog force-restarted it but could not fix the host-level cause.',
+			remediation: '1. Fix the host resource condition (reboot + isolate leaking driver) 2. Do not rely on service restarts alone 3. Re-capture a fresh warp-diag during active degradation if it recurs',
+			evidence_keywords: ['watchdog', 'hung daemon', 'panicked', 'overly hung daemon'],
+			affected_files: [...new Set(d.runtimePanics.map(p => p.file))],
+		});
+	}
+
+	// 3) IPC named pipe absent at capture time
+	if (d.ipc.failures.length > 0) {
+		const affected = (d.ipc.affectedFiles || []).map(f => f.split(/[\\/]/).pop());
+		findings.push({
+			severity: 'Critical', blocking: true, category: 'Connection',
+			title: 'WARP IPC named pipe absent at capture time',
+			description: `${d.ipc.failures.length} status file(s) returned "IPC: os error 2".${d.ipc.processPresent ? ` The warp-svc process IS present${d.ipc.pid ? ` (pid ${d.ipc.pid})` : ''} — running but the named pipe was not recreated after the last crash.` : ''}`,
+			what_logs_show: `Failed to communicate with WARP service over IPC:\n  The system cannot find the file specified. (os error 2)\n-- Returned by: ${affected.slice(0, 10).join(', ') || 'warp-status and other status files'} --${d.ipc.processPresent ? `\nNote: warp-svc process IS present${d.ipc.pid ? ` (pid ${d.ipc.pid})` : ''}; the service is running but the pipe was not recreated.` : ''}`,
+			what_experienced: 'The WARP UI reported the client as disconnected and would not respond to connect/disconnect attempts. The tray icon appeared stuck. This is a symptom of the daemon crash — the process exists but the UI-to-service channel is gone.',
+			root_cause: 'After the final daemon crash the IPC named pipe was not recreated, so the GUI and CLI could not talk to the service.',
+			remediation: '1. Reboot (recreates the pipe and clears the host condition) 2. Confirm warp-svc restarts cleanly 3. If it recurs without reboot, the host resource condition is the driver',
+			evidence_keywords: ['os error 2', 'IPC', 'cannot find the file specified'],
+			affected_files: [...new Set(d.ipc.failures.map(e => e.file))],
+		});
+	}
+
+	// 4) WMI subsystem degraded
+	if (d.wmi.degraded) {
+		findings.push({
+			severity: 'Warning', category: 'System',
+			title: 'WMI subsystem degraded',
+			description: 'WMI probes timed out and/or repository verification failed. WARP operations that use WMI (DDNS registration, posture checks) will also hang.',
+			what_logs_show: [
+				...d.wmi.timeouts.slice(0, 1).map(t => t.text),
+				...d.wmi.errors.slice(0, 1).map(e => e.text),
+			].filter(Boolean).join('\n') || 'WMI Probe: TIMEOUT (COM subsystem degraded)',
+			what_experienced: 'Management and inventory tools that rely on WMI stalled or returned errors. This is a corroborating symptom of the same host resource condition, not a separate problem.',
+			root_cause: 'The COM/WMI subsystem was starved by the same kernel resource exhaustion affecting WARP.',
+			remediation: '1. Reboot to restore WMI 2. If WMI stays broken after reboot, run winmgmt /salvagerepository',
+			evidence_keywords: ['WMI', '0x80041003', 'COM subsystem'],
+		});
+	}
+
+	// 5) Early captive-portal probe failures — transient
+	if (d.captivePortal && d.captivePortal.failures > 0) {
+		const recovered = d.captivePortal.recovered;
+		findings.push({
+			severity: recovered ? 'Info' : 'Warning', category: 'Network',
+			title: recovered ? 'Early captive-portal probe failures — transient, resolved before crash' : 'Captive-portal probe failures',
+			description: `${d.captivePortal.failures} captive-portal probe failure(s) recorded${d.captivePortal.firstTs ? ` starting ${d.captivePortal.firstTs}` : ''}.${recovered ? ` All checks recovered${d.captivePortal.recoveredTs ? ` by ${d.captivePortal.recoveredTs}` : ''}.` : ''}`,
+			what_logs_show: `captive_portal: Failed HTTP request — TimedOut / HTTPS test request failed (WSAEACCES / os error 10013)${recovered ? `\ncaptive_portal: Captive portal detection completed — NoCaptivePortalDetected` : ''}`,
+			what_experienced: 'Shortly after startup, connectivity probes timed out and hit socket-access-forbidden errors. This looks alarming but is an early corroborating signal of the same resource/socket condition — not an actual captive portal.',
+			root_cause: 'Ephemeral-port or socket exhaustion and/or endpoint-security WFP filtering interfered with early probes — the same root cause, seen early.',
+			remediation: recovered ? '1. No action — the checks recovered on their own 2. Treat as an early indicator of the resource condition' : '1. Complete any captive-portal login 2. Check WFP/endpoint-security filtering',
+			evidence_keywords: ['captive_portal', '10013', 'WSAEACCES', 'TimedOut'],
+		});
+	}
+
+	// 6) Endpoint-security / kernel-driver agents present (contributing factor)
+	const kernelAgents = (d.endpointAgents || []).filter(a => a.kernel);
+	if (kernelAgents.length && (d.resourceErrors.length > 0 || d.socketErrors.length > 0)) {
+		findings.push({
+			severity: 'Info', category: 'Security',
+			title: 'Endpoint-security agents with kernel components detected',
+			description: `Detected: ${kernelAgents.map(a => a.name + (a.version ? ` ${a.version}` : '')).join(', ')}. These load kernel-mode drivers / WFP filters and are the most likely source of the kernel resource leak.`,
+			what_logs_show: kernelAgents.map(a => `${a.name}${a.version ? ' ' + a.version : ''} (${a.kind}) [${a.source}]`).join('\n'),
+			what_experienced: 'Not directly user-visible, but these agents are prime suspects for the kernel pool leak that crashed WARP.',
+			root_cause: 'Kernel-mode security drivers are a common cause of nonpaged-pool leaks and WFP interference.',
+			remediation: '1. Update each agent to the latest release 2. Test with each temporarily suspended (per security policy) to isolate the leaker 3. Check Event ID 2019/2020 for the owning pool tag',
+			evidence_keywords: kernelAgents.map(a => a.name),
+		});
+	}
+
+	// 7) No MDM deployment configuration present (informational)
+	if ((d.management && d.management.length) && !snap.mdm) {
+		findings.push({
+			severity: 'Info', category: 'Configuration',
+			title: 'No MDM deployment configuration present',
+			description: `WARP is enrolled via the Team Name flow, not a managed deployment profile. The device is managed by ${d.management.join(' and ')} but no Cloudflare mdm.xml was found.`,
+			what_logs_show: 'C:\\ProgramData\\Cloudflare\\mdm.xml not found',
+			what_experienced: 'Not causing the current issue, but WARP settings are not centrally enforced.',
+			root_cause: 'No Cloudflare-specific MDM policy has been pushed to a co-managed device.',
+			remediation: '1. Deploy mdm.xml via your MDM to lock organization, service mode and split-tunnel rules',
+			evidence_keywords: ['mdm.xml', ...d.management],
+		});
+	}
 
 	// Connection status
 	const status = (snap.connection.status || '').toLowerCase();
@@ -1549,7 +2058,7 @@ function deriveFindings(snap, files) {
 }
 
 function computeHealth(findings) {
-	if (findings.some(f => f.severity === 'Critical')) return 'Critical';
+	if (findings.some(f => f.severity === 'Critical' || f.blocking)) return 'Critical';
 	if (findings.some(f => f.severity === 'Warning')) return 'Degraded';
 	return 'Healthy';
 }
