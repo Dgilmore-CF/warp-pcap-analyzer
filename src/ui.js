@@ -2667,9 +2667,10 @@ for(const cl of codeLines){ensure(12);if(cl.t==='sp'){y+=6;continue}doc.setTextC
 }
 
 footer();
-const fname=(String(deviceId).replace(/[^\w.-]/g,'_'))+'-WARP-Debrief.pdf';
+const safeHost=String(deviceId).replace(/[\\\\/:*?"<>|]/g,'').replace(/\\s+/g,' ').trim()||'Unknown Host';
+const fname='WARP Diagnostic Results - '+safeHost+'.pdf';
 doc.save(fname);
-toast('success','Debrief exported: '+fname);
+toast('success','Exported: '+fname);
 }
 
 // ── Export ───────────────────────────────────────────────────────────
