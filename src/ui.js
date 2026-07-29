@@ -10,7 +10,7 @@ export const UI_HTML = `<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>WARP & PCAP Analyzer</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" integrity="sha384-JcnsjUPPylna1s1fvi1u12X5qjY5OL56iySh75FdtrwhO/SWXgMjoVqcKyIIWOLk" crossorigin="anonymous" referrerpolicy="no-referrer" defer onerror="window.__jspdfFailed=true;var s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js';s.onload=function(){window.__jspdfFailed=false};document.head.appendChild(s)"></script>
 <style>
 /* ── Reset & Base ─────────────────────────────────────────────────────── */
 *{margin:0;padding:0;box-sizing:border-box}
@@ -2462,7 +2462,9 @@ try{generateDebriefPDF()}catch(e){console.error(e);toast('error','PDF export fai
 
 function generateDebriefPDF(){
 const jsPDFCtor=(window.jspdf&&window.jspdf.jsPDF)||window.jsPDF;
-if(!jsPDFCtor){toast('error','PDF library still loading — try again in a moment');return}
+if(!jsPDFCtor){
+toast('error',window.__jspdfFailed?'PDF library failed to load — check your network/ad-blocker and retry':'PDF library still loading — try again in a moment');
+return}
 
 const warp=state.warp||{};
 const warpAI=state.ai?.warp?.analysis||state.ai?.warp?.fallback||{};
