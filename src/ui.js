@@ -501,6 +501,7 @@ kbd{font-family:var(--mono);background:var(--bg3);border:1px solid var(--border)
 <span id="themeIcon">&#x2600;&#xFE0F;</span>
 </button>
 <button class="btn btn-ghost btn-sm" id="btnSessions" title="View saved sessions">Sessions</button>
+<button class="btn btn-ghost btn-sm" id="btnLogout" title="Log out of Cloudflare Access (/cdn-cgi/access/logout)">Logout</button>
 <button class="btn btn-primary btn-sm hidden" id="btnDebrief" title="Export a customer-ready WARP Diagnostic Debrief PDF">Export Debrief PDF</button>
 <select id="exportSelect" class="hidden" style="font-size:11px;padding:4px 8px">
 <option value="">Export data...</option>
@@ -2454,6 +2455,14 @@ $('btnSessions').onclick=()=>{
 if($('upload-screen').classList.contains('active')){loadSessions()}
 else{$('btnBack').click()}
 };
+
+// ── Cloudflare Access logout ──────────────────────────────────────────
+// Hits the Access logout endpoint, which clears the CF_Authorization cookie
+// and (when redirect is supplied) returns the user to the app login flow.
+$('btnLogout')&&($('btnLogout').onclick=()=>{
+toast('info','Logging out of Cloudflare Access\u2026');
+window.location.href='/cdn-cgi/access/logout?returnTo='+encodeURIComponent(window.location.origin+'/');
+});
 
 // ── WARP Diagnostic Debrief PDF (client-side, jsPDF) ──────────────────
 $('btnDebrief')&&($('btnDebrief').onclick=()=>{
