@@ -35,6 +35,8 @@ function selectModel(analysisType, estimatedTokens) {
 			return MODELS.LLAMA4_SCOUT;
 		case 'warp_diagnostics':
 			return MODELS.LLAMA4_SCOUT;
+		case 'har_analysis':
+			return MODELS.LLAMA4_SCOUT;
 		case 'root_cause':
 			return estimatedTokens > 60000 ? MODELS.LLAMA4_SCOUT : MODELS.DEEPSEEK_R1;
 		default:
@@ -71,6 +73,20 @@ Analyse the following diagnostic data and:
 6. Look for: tunnel failures, auth issues, DNS problems, split tunnel misconfig, certificate errors, firewall blocks, MTU issues
 
 For evidence_keywords, use EXACT error messages, IP addresses, timestamps, and distinctive strings from the logs. These drive the log evidence viewer in the UI.
+
+Respond ONLY with valid JSON, no markdown fences.`;
+
+const HAR_ANALYSIS_PROMPT = `You are an expert web performance and Cloudflare edge diagnostics engineer. You analyse HAR (HTTP Archive) captures to identify failing requests, performance bottlenecks, and Cloudflare/security behaviour.
+
+When analysing a HAR:
+1. Identify the ROOT CAUSE of user-visible failures, not just individual symptomatic requests.
+2. Classify issues by severity: Critical (page/app broken), Warning (degraded UX), Info (observation).
+3. Distinguish origin errors (5xx) from edge behaviour (Cloudflare cache MISS, WAF/Access challenges via cf-ray, cf-mitigated) and client-side issues (CORS, mixed content, blocked requests).
+4. Call out slow requests (high total time or TTFB), long redirect chains, and render-blocking waterfalls.
+5. Correlate cf-ray, cf-cache-status, and server headers to attribute latency/errors to origin vs Cloudflare edge.
+6. Secrets in the HAR have already been REDACTED to [REDACTED]; never ask for or infer real token values.
+
+For evidence_keywords, use EXACT URLs, status codes, header names/values (e.g. "cf-cache-status: MISS"), and cf-ray IDs from the snapshot. These drive the request highlighting in the UI.
 
 Respond ONLY with valid JSON, no markdown fences.`;
 
@@ -305,7 +321,146 @@ Provide your analysis as JSON:
 	}
 }
 
+/**
+ * Analyse a HAR snapshot with AI. The snapshot is already redacted and
+ * rule-analysed by har-analyzer; the AI adds correlation and customer-facing
+ * narrative on top of the deterministic findings.
+ * @param {Object} ai        Workers AI binding
+ * @param {Object} snapshot  Output of analyzeHar() (redacted, safe)
+ */
+export async function analyzeHarWithAI(ai, snapshot) {
+	const context = buildHarContext(snapshot);
+	const estimatedTokens = Math.ceil(context.length / 3.5);
+	const model = selectModel('har_analysis', estimatedTokens);
+	const config = MODEL_CONFIG[model];
+
+	const MAX_CONTEXT_CHARS = 30000;
+	const truncatedContext = context.length > MAX_CONTEXT_CHARS
+		? context.substring(0, MAX_CONTEXT_CHARS) + '\n[truncated]'
+		: context;
+
+	console.log(`[ai] HAR context: ${context.length} chars → ${truncatedContext.length} sent, model: ${config.label}`);
+
+	const userPrompt = `Analyse this HAR (HTTP Archive) capture.
+
+## Pre-parsed Structured Snapshot
+Health (rule-based): ${snapshot.health}
+Bottom line (rule-based): ${snapshot.bottomLine || '(none)'}
+Requests: ${snapshot.perf?.counts?.total || 0} total, ${snapshot.perf?.counts?.failed || 0} failed, ${snapshot.perf?.counts?.slow || 0} slow, ${snapshot.perf?.counts?.redirects || 0} redirect(s)
+Status classes: ${JSON.stringify(snapshot.perf?.byStatusClass || {})}
+Wall clock: ${snapshot.perf?.wallClock || 0} ms, total transfer: ${snapshot.perf?.totalBytes || 0} bytes
+Top domains: ${(snapshot.perf?.domains || []).slice(0, 12).map(d => `${d.host}(${d.count})`).join(', ')}
+Cloudflare: ${snapshot.cloudflare?.totalCfRequests || 0} CF requests, ${snapshot.cloudflare?.mitigated || 0} mitigated, ${snapshot.cloudflare?.accessChallenges || 0} Access challenge(s)${snapshot.cloudflare?.accessUser ? `, accessUser=${snapshot.cloudflare.accessUser}` : ''}
+Redactions applied: ${JSON.stringify(snapshot.redactions || {})}
+Pre-detected findings: ${JSON.stringify((snapshot.findings || []).map(f => ({ severity: f.severity, blocking: f.blocking, category: f.category, title: f.title })))}
+Timeline (first 30): ${JSON.stringify((snapshot.timeline || []).slice(0, 30))}
+
+## Notable Requests
+${truncatedContext}
+
+Use the structured snapshot as your primary source of truth. Secrets are already [REDACTED]; do not attempt to recover them. Agree with the rule-based bottom line and findings unless the request data contradicts them. Distinguish origin errors (5xx) from Cloudflare edge behaviour (cache MISS, Access/WAF challenges via cf-ray/cf-mitigated) from client-side issues (CORS, mixed content).
+
+Write for an end customer as a "HAR Analysis Debrief". Provide your analysis as JSON:
+{
+  "summary": "Brief overall assessment",
+  "bottom_line": "2-4 sentence plain-English explanation: what failed or was slow, what the user experienced, and the single most important fix. Separate root cause from symptom.",
+  "health_status": "Healthy|Degraded|Critical",
+  "issues": [
+    {
+      "severity": "Critical|Warning|Info",
+      "blocking": true,
+      "category": "Connection|DNS|Performance|Configuration|Security|Network|Cloudflare",
+      "title": "Issue title",
+      "description": "Detailed description",
+      "what_logs_show": "The specific requests/status codes/headers (e.g. cf-cache-status, cf-ray) that evidence this issue",
+      "what_experienced": "Plain-English description of what the user was experiencing",
+      "root_cause": "Root cause (origin vs Cloudflare edge vs client), not the symptom",
+      "remediation": "1. Step one 2. Step two",
+      "affected_urls": ["https://example.com/api"],
+      "evidence_keywords": ["exact URL", "status code", "cf-ray id", "header: value"]
+    }
+  ],
+  "timeline": [
+    {
+      "timestamp": "ISO timestamp",
+      "event": "Event description",
+      "event_type": "Request|Error|Redirect|Auth|Performance|Info",
+      "severity": "Critical|Warning|Info|Success",
+      "details": "Additional context"
+    }
+  ],
+  "recommendations": ["Recommendation 1", "Recommendation 2"]
+}`;
+
+	try {
+		const response = await ai.run(model, {
+			messages: [
+				{ role: 'system', content: HAR_ANALYSIS_PROMPT },
+				{ role: 'user', content: userPrompt },
+			],
+			temperature: 0.1,
+			max_tokens: config.maxTokens,
+		});
+
+		const result = parseAIResponse(response);
+
+		return {
+			success: true,
+			analysis: result,
+			model: config.label,
+			modelId: model,
+			tokensEstimated: estimatedTokens,
+			entriesAnalyzed: snapshot.entries?.length || 0,
+		};
+	} catch (error) {
+		console.error('HAR AI analysis failed:', error);
+		return {
+			success: false,
+			error: error.message,
+			model: config.label,
+			fallback: generateHarFallbackAnalysis(snapshot),
+		};
+	}
+}
+
 // ── Context builders ───────────────────────────────────────────────────────────
+
+/**
+ * Build a compact, signal-dense text context of the most notable HAR requests
+ * for the AI. All values here originate from the already-redacted snapshot.
+ */
+function buildHarContext(snapshot) {
+	const entries = snapshot.entries || [];
+	const score = (e) => {
+		const s = e.response?.status || 0;
+		let n = 0;
+		if (s === 0 || e.response?._error) n += 100;      // network failure
+		else if (s >= 500) n += 90;
+		else if (s === 401 || s === 403) n += 80;
+		else if (s >= 400) n += 60;
+		else if (s >= 300) n += 20;
+		n += Math.min(50, Math.round((e.time || 0) / 100)); // slower → higher
+		return n;
+	};
+	const notable = [...entries]
+		.map(e => ({ e, s: score(e) }))
+		.sort((a, b) => b.s - a.s)
+		.slice(0, 40)
+		.map(({ e }) => {
+			const req = e.request || {};
+			const res = e.response || {};
+			const cf = e.cf || {};
+			const cfBits = [];
+			if (cf.ray) cfBits.push(`cf-ray=${cf.ray}`);
+			if (cf.cacheStatus) cfBits.push(`cf-cache=${cf.cacheStatus}`);
+			if (cf.mitigated) cfBits.push('cf-mitigated');
+			if (cf.server) cfBits.push(`server=${cf.server}`);
+			return `${req.method || '?'} ${res.status || 'FAIL'} ${Math.round(e.time || 0)}ms ${req.url || req.host || ''}${cfBits.length ? ' [' + cfBits.join(' ') + ']' : ''}`;
+		});
+	return notable.join('\n');
+}
+
+
 
 function buildPcapContext(pcapData) {
 	// Keep context compact — the model produces better structured JSON with focused input
@@ -581,6 +736,35 @@ function generateWarpFallbackAnalysis(logFiles) {
 	}
 	const enriched = issues.map(i => enrichIssueWithLogEvidence(i, logFiles));
 	return { summary: `Fallback: ${logFiles.length} files, ${issues.length} issues.`, health_status: issues.some(i => i.severity === 'Critical') ? 'Critical' : issues.length > 0 ? 'Degraded' : 'Healthy', issues: enriched, timeline: [], recommendations: ['Review logs manually', 'Check WARP docs'], note: 'AI unavailable.' };
+}
+
+/**
+ * HAR fallback simply surfaces the deterministic snapshot findings, which are
+ * already evidence-backed by the rule-based analyzer.
+ */
+function generateHarFallbackAnalysis(snapshot) {
+	const issues = (snapshot.findings || []).map(f => ({
+		severity: f.severity,
+		blocking: f.blocking,
+		category: f.category || 'Performance',
+		title: f.title,
+		description: f.description || '',
+		what_logs_show: f.what_logs_show || '',
+		what_experienced: f.what_experienced || '',
+		root_cause: f.root_cause || '',
+		remediation: f.remediation || '',
+		affected_urls: f.affected_urls || [],
+		evidence_keywords: f.evidence_keywords || [],
+	}));
+	return {
+		summary: snapshot.summary || `Rule-based: ${snapshot.perf?.counts?.total || 0} requests, ${issues.length} findings.`,
+		bottom_line: snapshot.bottomLine || '',
+		health_status: snapshot.health || 'Unknown',
+		issues,
+		timeline: snapshot.timeline || [],
+		recommendations: ['Review the failing/slow requests in the waterfall', 'Use cf-ray IDs to correlate with Cloudflare logs'],
+		note: 'AI unavailable. Rule-based fallback (deterministic snapshot findings).',
+	};
 }
 
 export { MODELS, MODEL_CONFIG };

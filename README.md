@@ -67,6 +67,18 @@ AI produces structured findings with:
 - Numbered remediation steps
 - Event timeline with log references
 
+### HAR (HTTP Archive) Analysis
+
+Upload a `.har` file exported from browser DevTools to get a full request-level debrief:
+
+- **Dashboard**: health banner, bottom-line summary, perf tiles (requests, 5xx, 4xx, failed, slow, transferred, Cloudflare), and prescriptive issue cards
+- **Waterfall**: per-request timing bars colour-coded by status class
+- **All Requests**: filterable table (method / status class / Cloudflare) with live URL search
+- **Cloudflare view**: cf-ray, cache status, WAF/Bot mitigations, and Access challenge/identity detection
+- **Findings**: rule-based detection of server errors (5xx), auth failures (401/403), network failures, Access re-auth redirects, `cf-mitigated` responses, slow requests, long redirect chains, CORS gaps, and mixed content
+- **Security**: sensitive values (auth headers, tokens, cookies, secret query params) are detected, flagged, and **redacted before storage** — secrets are never persisted to KV
+- **Export**: customer-ready "HAR Analysis Debrief" PDF
+
 ### Statistics Dashboard
 
 - Protocol distribution with percentage bars
@@ -108,6 +120,7 @@ Analysis results stored in Workers KV for 7 days:
 | WARP diag ZIP | Full extraction and parsing (40+ file types) |
 | PCAP (legacy) | Full binary decode with protocol analysis |
 | PCAPNG | Full binary decode (Enhanced Packet Blocks, Interface Description) |
+| HAR (HTTP Archive) | Full request analysis, waterfall, Cloudflare/security detection (secrets redacted) |
 | Individual logs | Text parsing and categorisation (.log, .txt, .json) |
 
 ---
@@ -199,6 +212,10 @@ curl -X POST http://localhost:8787/api/analyze \
 # Upload a WARP diagnostic bundle
 curl -X POST http://localhost:8787/api/analyze \
   -F "file=@warp-debugging-info.zip"
+
+# Upload a HAR (HTTP Archive) file
+curl -X POST http://localhost:8787/api/analyze \
+  -F "files=@capture.har;type=application/json"
 ```
 
 ---
@@ -343,6 +360,10 @@ Get AI analysis results (PCAP security assessment + WARP diagnostics).
 ### `GET /api/sessions/:id/warp`
 
 Get WARP diagnostic file data and configuration review.
+
+### `GET /api/sessions/:id/har`
+
+Get the HAR analysis snapshot (redacted): findings, waterfall, per-request entries, performance rollups, and Cloudflare edge detection.
 
 ### `GET /api/sessions/:id/export/:format`
 

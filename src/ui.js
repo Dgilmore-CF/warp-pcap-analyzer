@@ -443,6 +443,52 @@ select:focus,input:focus{border-color:var(--orange)}
 .pcard-logs .err{color:var(--red)}
 .pcard-exp{font-size:12.5px;color:var(--text2);line-height:1.5;margin-top:4px}
 
+/* HAR — perf summary tiles */
+.har-tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin-bottom:20px}
+.har-tile{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px 14px}
+.har-tile h5{font-size:10px;font-weight:600;letter-spacing:.5px;text-transform:uppercase;color:var(--text3);margin-bottom:6px}
+.har-tile .big{font-size:22px;font-weight:700;color:var(--text);line-height:1}
+.har-tile .sub{font-size:11px;color:var(--text2);margin-top:4px}
+.har-tile.ok{border-left:4px solid var(--green)}
+.har-tile.warn{border-left:4px solid var(--yellow)}
+.har-tile.crit{border-left:4px solid var(--red)}
+.har-tile.cf{border-left:4px solid var(--orange)}
+
+/* HAR — filter chips */
+.har-filters{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:12px}
+.har-filters input{flex:1;min-width:180px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:6px 10px;color:var(--text);font-size:12px}
+.har-chip{font-size:11px;padding:4px 10px;border-radius:12px;background:var(--bg3);border:1px solid var(--border);color:var(--text2);cursor:pointer;white-space:nowrap;user-select:none}
+.har-chip:hover{color:var(--text);border-color:var(--text3)}
+.har-chip.active{background:var(--orange);border-color:var(--orange);color:#fff}
+.har-chip.crit.active{background:var(--red);border-color:var(--red)}
+.har-chip.warn.active{background:var(--yellow);border-color:var(--yellow);color:#1a1a1a}
+
+/* HAR — requests table */
+.har-table{width:100%;border-collapse:collapse;font-size:12px}
+.har-table th{position:sticky;top:0;background:var(--bg2);text-align:left;padding:8px 10px;font-size:10px;font-weight:600;letter-spacing:.4px;text-transform:uppercase;color:var(--text3);border-bottom:1px solid var(--border);z-index:1}
+.har-table td{padding:7px 10px;border-bottom:1px solid var(--border);color:var(--text2);vertical-align:top}
+.har-table tr:hover td{background:var(--bg2)}
+.har-url{font-family:var(--mono);font-size:11px;color:var(--text);max-width:520px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.har-method{font-weight:700;font-size:10px;color:var(--text2)}
+.har-status{font-weight:700;font-variant-numeric:tabular-nums}
+.har-status.s2{color:var(--green)}.har-status.s3{color:var(--blue)}.har-status.s4{color:var(--yellow)}.har-status.s5{color:var(--red)}.har-status.s0{color:var(--red)}
+.har-time{font-variant-numeric:tabular-nums;color:var(--text2);text-align:right;white-space:nowrap}
+.har-cfpill{display:inline-block;font-size:9px;font-weight:700;letter-spacing:.3px;padding:1px 6px;border-radius:8px;margin-left:5px;background:#f6821f22;color:var(--orange)}
+.har-cfpill.miss{background:#d2992222;color:var(--yellow)}
+.har-cfpill.hit{background:#3fb95022;color:var(--green)}
+.har-cfpill.mit{background:#f8514922;color:var(--red)}
+
+/* HAR — waterfall */
+.har-wf{font-size:11px}
+.har-wf-row{display:flex;align-items:center;gap:8px;padding:3px 0;border-bottom:1px solid var(--border)}
+.har-wf-row:hover{background:var(--bg2)}
+.har-wf-label{flex:0 0 40%;max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--mono);color:var(--text2)}
+.har-wf-track{position:relative;flex:1;height:14px;background:var(--bg3);border-radius:3px;overflow:hidden}
+.har-wf-bar{position:absolute;top:0;height:100%;border-radius:3px;min-width:2px;background:var(--blue)}
+.har-wf-bar.s2{background:var(--green)}.har-wf-bar.s3{background:var(--blue)}.har-wf-bar.s4{background:var(--yellow)}.har-wf-bar.s5{background:var(--red)}.har-wf-bar.s0{background:var(--red)}
+.har-wf-ms{flex:0 0 70px;text-align:right;font-variant-numeric:tabular-nums;color:var(--text2)}
+.har-wf-axis{display:flex;justify-content:space-between;font-size:10px;color:var(--text3);margin:4px 0 6px;padding-left:calc(40% + 8px)}
+
 /* Recommended steps */
 .rec-steps{counter-reset:rstep;margin-bottom:24px}
 .rec-step{display:flex;gap:12px;margin-bottom:14px}
@@ -546,6 +592,7 @@ Supports: .zip (warp-diag) &middot; .pcap &middot; .pcapng &middot; .log &middot
 <button class="tab-btn" data-tab="ai">AI Analysis</button>
 <button class="tab-btn" data-tab="timeline">Timeline</button>
 <button class="tab-btn hidden" data-tab="warp">WARP Diagnostics</button>
+<button class="tab-btn hidden" data-tab="har">HAR Analysis</button>
 </div>
 
 <!-- Packets Tab -->
@@ -648,6 +695,31 @@ Supports: .zip (warp-diag) &middot; .pcap &middot; .pcapng &middot; .log &middot
 </div>
 </div>
 </div>
+
+<!-- HAR Analysis Tab -->
+<div class="tab-pane" id="tab-har">
+<div class="warp-layout">
+<div class="warp-sidebar" id="harSidebar">
+<div class="warp-nav-sep">Overview</div>
+<div class="warp-nav-item active" data-har-view="dashboard">Dashboard</div>
+<div class="warp-nav-item" data-har-view="findings">Findings <span class="badge-count" id="hCountFindings">0</span></div>
+<div class="warp-nav-sep">Requests</div>
+<div class="warp-nav-item" data-har-view="waterfall">Waterfall <span class="badge-count" id="hCountWaterfall">0</span></div>
+<div class="warp-nav-item" data-har-view="requests">All Requests <span class="badge-count" id="hCountRequests">0</span></div>
+<div class="warp-nav-item" data-har-view="timeline">Timeline <span class="badge-count" id="hCountTimeline">0</span></div>
+<div class="warp-nav-sep">Edge</div>
+<div class="warp-nav-item" data-har-view="cloudflare">Cloudflare</div>
+</div>
+<div class="warp-content" id="harContent">
+<div class="warp-view active" id="har-dashboard"></div>
+<div class="warp-view" id="har-findings"></div>
+<div class="warp-view" id="har-waterfall"></div>
+<div class="warp-view" id="har-requests"></div>
+<div class="warp-view" id="har-timeline"></div>
+<div class="warp-view" id="har-cloudflare"></div>
+</div>
+</div>
+</div>
 </div>
 
 <!-- Status Bar -->
@@ -711,7 +783,7 @@ const ROW_HEIGHT=22;   // px per packet row
 const OVERSCAN=10;      // extra rows to render outside viewport for smooth scroll
 
 let state={
-packets:[],flows:{},stats:{},ai:null,sessionId:null,warpFiles:null,warp:null,
+packets:[],flows:{},stats:{},ai:null,sessionId:null,warpFiles:null,warp:null,har:null,
 selectedIdx:-1,filteredPackets:null,allPackets:[],
 sortBy:null,sortDir:'asc',timeFormat:'relative', // 'relative' | 'absolute' | 'delta'
 };
@@ -795,6 +867,7 @@ state.sessionId=data.sessionId;
 state.ai=data.ai;
 state.warpFiles=data.warpFiles||null;
 state.warp=data.warp||null;
+state.har=data.har||null;
 
 if(data.pcap){
 state.allPackets=data.pcap.packets||[];
@@ -816,8 +889,11 @@ const warpTab=document.querySelector('[data-tab="warp"]');
 const hasWarp=(state.warpFiles&&state.warpFiles.length>0)||state.warp;
 if(hasWarp)warpTab.classList.remove('hidden');
 else warpTab.classList.add('hidden');
+const harTab=document.querySelector('[data-tab="har"]');
+const hasHar=!!state.har;
+if(harTab){if(hasHar)harTab.classList.remove('hidden');else harTab.classList.add('hidden');}
 const btnDebrief=$('btnDebrief');
-if(btnDebrief){if(hasWarp)btnDebrief.classList.remove('hidden');else btnDebrief.classList.add('hidden');}
+if(btnDebrief){if(hasWarp||hasHar)btnDebrief.classList.remove('hidden');else btnDebrief.classList.add('hidden');}
 
 buildPacketHeader();
 renderPacketList();
@@ -826,6 +902,7 @@ renderStats();
 renderAI();
 renderTimeline();
 if(hasWarp)renderWarp(data);
+if(hasHar)renderHar(data);
 updateStatusBar(data);
 
 // Auto-select first packet
@@ -2429,6 +2506,268 @@ renderWarpLogs(files);
 });
 }
 
+// ── HAR Analysis ────────────────────────────────────────────────────
+// Full HAR snapshot (redacted, rule-analysed) is stored in state.har.
+// AI enrichment (if any) is in state.ai.har.analysis|fallback.
+let harState={statusFilter:'all',search:''};
+
+function harClass(status){
+if(!status||status===0)return's0';
+if(status>=500)return's5';if(status>=400)return's4';if(status>=300)return's3';return's2';
+}
+function cfPills(cf){
+if(!cf)return'';
+let out='';
+if(cf.cacheStatus){
+const cs=String(cf.cacheStatus).toUpperCase();
+const cls=cs==='HIT'?'hit':cs==='MISS'?'miss':'';
+out+='<span class="har-cfpill '+cls+'">'+esc(cs)+'</span>';
+}
+if(cf.mitigated)out+='<span class="har-cfpill mit">MITIGATED</span>';
+if(cf.ray)out+='<span class="har-cfpill" title="cf-ray '+esc(cf.ray)+'">RAY</span>';
+return out;
+}
+
+function renderHar(data){
+const har=state.har||data.har;
+const harAI=state.ai?.har?.analysis||state.ai?.har?.fallback;
+if(!har){
+document.querySelectorAll('#harContent .warp-view').forEach(v=>v.innerHTML='<div class="warp-empty"><h4>No HAR data</h4><p>Upload a .har file to populate this view.</p></div>');
+return;
+}
+const findingsList=[...(har.findings||[]),...(harAI?.issues||[])];
+const entries=har.entries||[];
+$('hCountFindings').textContent=findingsList.length;
+$('hCountFindings').parentElement.className='warp-nav-item'+(findingsList.some(f=>f.severity==='Critical'||f.blocking)?' crit':findingsList.some(f=>f.severity==='Warning')?' warn':'');
+$('hCountWaterfall').textContent=(har.waterfall?.rows||[]).length;
+$('hCountRequests').textContent=entries.length;
+$('hCountTimeline').textContent=(har.timeline||[]).length;
+
+renderHarDashboard(har,harAI,findingsList);
+renderHarFindings(findingsList);
+renderHarWaterfall(har);
+renderHarRequests(har);
+renderHarTimeline(har.timeline||[]);
+renderHarCloudflare(har);
+
+document.querySelectorAll('#harSidebar .warp-nav-item').forEach(item=>{
+item.onclick=()=>{
+const view=item.dataset.harView;
+if(!view)return;
+document.querySelectorAll('#harSidebar .warp-nav-item').forEach(n=>n.classList.remove('active'));
+document.querySelectorAll('#harContent .warp-view').forEach(v=>v.classList.remove('active'));
+item.classList.add('active');
+const pane=$('har-'+view);
+if(pane)pane.classList.add('active');
+};
+});
+}
+
+function renderHarDashboard(har,harAI,findingsList){
+const perf=har.perf||{};
+const counts=perf.counts||{};
+const cls=perf.byStatusClass||{};
+const cf=har.cloudflare||{};
+const health=har.health||harAI?.health_status||'Unknown';
+const healthClass=health.toLowerCase();
+const healthIcon=health==='Healthy'?'\u2713':health==='Degraded'?'\u26A0':health==='Critical'?'\u2716':'?';
+let html='';
+html+='<div class="health-banner '+healthClass+'"><div class="hicon">'+healthIcon+'</div><div class="hbody"><div class="htitle">'+esc(health)+(health==='Healthy'?' \u2014 no blocking issues in this capture':' \u2014 Issues detected')+'</div><div class="hsub">'+(counts.total||0)+' request(s) \u2022 '+(counts.failed||0)+' failed \u2022 '+(counts.slow||0)+' slow \u2022 '+findingsList.length+' finding(s)</div></div></div>';
+
+// Perf tiles
+html+='<div class="har-tiles">';
+html+='<div class="har-tile"><h5>Requests</h5><div class="big">'+(counts.total||0)+'</div><div class="sub">'+(perf.wallClock||0)+' ms wall clock</div></div>';
+html+='<div class="har-tile '+((cls['5xx']||0)>0?'crit':'ok')+'"><h5>Server 5xx</h5><div class="big">'+(cls['5xx']||0)+'</div><div class="sub">origin/backend errors</div></div>';
+html+='<div class="har-tile '+((cls['4xx']||0)>0?'warn':'ok')+'"><h5>Client 4xx</h5><div class="big">'+(cls['4xx']||0)+'</div><div class="sub">incl. 401/403 auth</div></div>';
+html+='<div class="har-tile '+((cls.failed||0)>0?'crit':'ok')+'"><h5>Failed</h5><div class="big">'+(cls.failed||0)+'</div><div class="sub">no response received</div></div>';
+html+='<div class="har-tile '+((counts.slow||0)>0?'warn':'ok')+'"><h5>Slow</h5><div class="big">'+(counts.slow||0)+'</div><div class="sub">&gt;3s or &gt;1.5s TTFB</div></div>';
+html+='<div class="har-tile"><h5>Transferred</h5><div class="big">'+fmtBytes(perf.totalBytes||0)+'</div><div class="sub">'+(cls['2xx']||0)+' OK responses</div></div>';
+html+='<div class="har-tile cf"><h5>Cloudflare</h5><div class="big">'+(cf.totalCfRequests||0)+'</div><div class="sub">'+(cf.mitigated||0)+' mitigated \u2022 '+(cf.accessChallenges||0)+' Access</div></div>';
+html+='</div>';
+
+// Bottom line
+const bottomLine=harAI?.bottom_line||har.bottomLine||'';
+if(bottomLine)html+='<div class="bottom-line"><div class="bl-label">Bottom Line</div><div class="bl-text">'+esc(bottomLine)+'</div></div>';
+
+// Prescriptive findings (blocking/critical first)
+const merged=[...(har.findings||[]),...(harAI?.issues||[])];
+const seen=new Set();let issues=[];for(const f of merged){const k=(f.title||'').toLowerCase();if(seen.has(k))continue;seen.add(k);issues.push(f)}
+const sevRank=f=>(f.blocking?0:1)+(f.severity==='Critical'?0:f.severity==='Warning'?1:2);
+issues.sort((a,b)=>sevRank(a)-sevRank(b));
+if(issues.length){
+html+='<h3 style="font-size:15px;font-weight:700;margin:4px 0 12px">Issues Found <span style="color:var(--text3);font-weight:400;font-size:13px">('+issues.length+')</span></h3>';
+issues.forEach(f=>{html+=harIssueCard(f)});
+}
+
+// Top domains
+const domains=perf.domains||[];
+if(domains.length){
+html+='<div class="warp-card" style="margin-top:16px"><h4>Top Domains <span class="hcount">'+domains.length+'</span></h4>';
+domains.slice(0,12).forEach(d=>{html+=kv(d.host||'(unknown)',(d.count||0)+' req \u2022 '+fmtBytes(d.bytes||0))});
+html+='</div>';
+}
+
+// Recommendations
+const recs=harAI?.recommendations||[];
+if(recs.length){
+html+='<h3 style="font-size:15px;font-weight:700;margin:20px 0 10px">Recommendations</h3><div class="rec-steps">';
+recs.forEach((r,i)=>{html+='<div class="rec-step"><div class="num">'+(i+1)+'</div><div class="body"><div class="rs-text">'+esc(typeof r==='string'?r:(r.title||r.body||''))+'</div></div></div>'});
+html+='</div>';
+}
+
+if(har.redactions){
+const rd=har.redactions;const tot=(rd.headers||0)+(rd.params||0)+(rd.cookies||0)+(rd.bodies||0);
+if(tot>0)html+='<div class="causal-note" style="margin-top:16px">\uD83D\uDD12 '+tot+' sensitive value(s) were redacted before storage ('+(rd.headers||0)+' headers, '+(rd.params||0)+' params, '+(rd.cookies||0)+' cookies, '+(rd.bodies||0)+' bodies). Secrets are never persisted.</div>';
+}
+
+$('har-dashboard').innerHTML=html;
+}
+
+function harIssueCard(f){
+const sev=f.severity||'Info';const blocking=f.blocking||sev==='Critical';
+const cardCls=blocking?'blocking':sev==='Warning'?'warning':'';
+const badge=blocking?'BLOCKING':sev==='Warning'?'WARNING':'INFORMATIONAL';
+const badgeCls=blocking?'blocking':sev==='Warning'?'warning':'info';
+let h='<div class="pcard '+cardCls+'">';
+h+='<div class="pcard-head"><div class="pcard-title">'+esc(f.title||'')+'</div><span class="pcard-badge '+badgeCls+'">'+badge+'</span></div>';
+const logs=f.what_logs_show||'';
+if(logs)h+='<div class="pcard-sublabel">What the requests show</div><div class="pcard-logs">'+esc(logs)+'</div>';
+const exp=f.what_experienced||f.description||'';
+if(exp)h+='<div class="pcard-sublabel">What you were experiencing</div><div class="pcard-exp">'+esc(exp)+'</div>';
+const rem=f.remediation||'';
+if(rem)h+='<div class="pcard-sublabel">Remediation</div><div class="pcard-exp">'+esc(rem)+'</div>';
+h+='</div>';
+return h;
+}
+
+function renderHarFindings(findings){
+if(!findings||!findings.length){$('har-findings').innerHTML='<div class="warp-empty"><h4>No findings</h4><p>No issues detected in this HAR.</p></div>';return}
+const grouped={Critical:[],Warning:[],Info:[]};
+findings.forEach(f=>{const s=f.severity||'Info';(grouped[s]=grouped[s]||[]).push(f)});
+let html='';
+['Critical','Warning','Info'].forEach(sev=>{
+const list=grouped[sev]||[];if(!list.length)return;
+html+='<h3 style="font-size:14px;font-weight:700;margin:12px 0 10px">'+sev+' <span style="color:var(--text3);font-weight:400">('+list.length+')</span></h3>';
+list.forEach(f=>{html+=harIssueCard(f)});
+});
+$('har-findings').innerHTML=html;
+}
+
+function renderHarWaterfall(har){
+const wf=har.waterfall||{rows:[],span:1};
+const rows=wf.rows||[];
+if(!rows.length){$('har-waterfall').innerHTML='<div class="warp-empty"><h4>No timing data</h4><p>The HAR contained no request timing information.</p></div>';return}
+const span=wf.span||1;
+const entries=har.entries||[];
+let html='<div class="har-wf-axis"><span>0 ms</span><span>'+Math.round(span/2)+' ms</span><span>'+Math.round(span)+' ms</span></div>';
+html+='<div class="har-wf">';
+rows.forEach((r,i)=>{
+const e=entries[i]||{};
+const status=e.response?.status||0;
+const leftPct=(r.start/span)*100;
+const wPct=Math.max(0.4,(r.time/span)*100);
+const label=(e.request?.method||'')+' '+(e.request?.path||e.request?.host||e.request?.url||'');
+html+='<div class="har-wf-row" title="'+esc((e.request?.url||''))+'">';
+html+='<div class="har-wf-label">'+esc(label)+'</div>';
+html+='<div class="har-wf-track"><div class="har-wf-bar '+harClass(status)+'" style="left:'+leftPct.toFixed(2)+'%;width:'+wPct.toFixed(2)+'%"></div></div>';
+html+='<div class="har-wf-ms">'+Math.round(r.time)+' ms</div>';
+html+='</div>';
+});
+html+='</div>';
+$('har-waterfall').innerHTML=html;
+}
+
+function renderHarRequests(har){
+const filterWrap=document.createElement('div');
+const build=()=>{
+const entries=har.entries||[];
+const term=(harState.search||'').toLowerCase();
+const filtered=entries.filter(e=>{
+const st=e.response?.status||0;
+const f=harState.statusFilter;
+if(f==='2xx'&&!(st>=200&&st<300))return false;
+if(f==='3xx'&&!(st>=300&&st<400))return false;
+if(f==='4xx'&&!(st>=400&&st<500))return false;
+if(f==='5xx'&&!(st>=500))return false;
+if(f==='failed'&&!(st===0||e.response?._error))return false;
+if(f==='cf'&&!(e.cf&&e.cf.isCloudflare))return false;
+if(term){const hay=((e.request?.url||'')+' '+(e.request?.method||'')+' '+st).toLowerCase();if(hay.indexOf(term)===-1)return false}
+return true;
+});
+let html='<div class="har-filters">';
+html+='<input type="text" id="harSearch" placeholder="Filter by URL, method, status\u2026" value="'+esc(harState.search)+'">';
+const chips=[['all','All'],['5xx','5xx'],['4xx','4xx'],['3xx','3xx'],['2xx','2xx'],['failed','Failed'],['cf','Cloudflare']];
+chips.forEach(([v,lbl])=>{
+const extra=v==='5xx'||v==='failed'?' crit':v==='4xx'?' warn':'';
+html+='<span class="har-chip'+extra+(harState.statusFilter===v?' active':'')+'" data-hfilter="'+v+'">'+lbl+'</span>';
+});
+html+='</div>';
+html+='<div class="scroll-y" style="flex:1"><table class="har-table"><thead><tr><th>#</th><th>Method</th><th>Status</th><th>URL</th><th style="text-align:right">Time</th><th style="text-align:right">Size</th></tr></thead><tbody>';
+filtered.forEach((e,idx)=>{
+const st=e.response?.status||0;
+const stTxt=st===0?(e.response?._error?'ERR':'FAIL'):st;
+html+='<tr>';
+html+='<td style="color:var(--text3)">'+(idx+1)+'</td>';
+html+='<td class="har-method">'+esc(e.request?.method||'')+'</td>';
+html+='<td class="har-status '+harClass(st)+'" title="'+esc(e.response?._error||e.response?.statusText||'')+'">'+esc(String(stTxt))+'</td>';
+html+='<td class="har-url" title="'+esc(e.request?.url||'')+'">'+esc(e.request?.url||e.request?.host||'')+cfPills(e.cf)+'</td>';
+html+='<td class="har-time">'+Math.round(e.time||0)+' ms</td>';
+html+='<td class="har-time">'+fmtBytes(Math.max(0,e.response?.contentSize||0))+'</td>';
+html+='</tr>';
+});
+if(!filtered.length)html+='<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:24px">No requests match the current filter</td></tr>';
+html+='</tbody></table></div>';
+$('har-requests').innerHTML=html;
+$('har-requests').style.display='flex';$('har-requests').style.flexDirection='column';
+const si=$('harSearch');
+if(si)si.oninput=()=>{harState.search=si.value;const pos=si.selectionStart;build();const ns=$('harSearch');if(ns){ns.focus();try{ns.setSelectionRange(pos,pos)}catch(e){}}};
+document.querySelectorAll('#har-requests .har-chip').forEach(c=>{c.onclick=()=>{harState.statusFilter=c.dataset.hfilter;build()}});
+};
+build();
+}
+
+function renderHarTimeline(timeline){
+if(!timeline||!timeline.length){$('har-timeline').innerHTML='<div class="empty-state">No timeline events</div>';return}
+let html='<div class="ai-section"><h3>Request Timeline ('+timeline.length+' events)</h3><div class="timeline-list">';
+timeline.forEach(ev=>{
+const sev=(ev.severity||'info').toLowerCase();
+html+='<div class="tl-item '+sev+'"><div class="tl-dot"></div>';
+html+='<div class="tl-time">'+esc(ev.timestamp||'')+'</div>';
+html+='<div class="tl-event">'+esc(ev.event||ev.event_type||'')+'</div>';
+if(ev.details)html+='<div class="tl-detail">'+esc(ev.details)+'</div>';
+html+='</div>';
+});
+html+='</div></div>';
+$('har-timeline').innerHTML=html;
+}
+
+function renderHarCloudflare(har){
+const cf=har.cloudflare||{};
+const entries=(har.entries||[]).filter(e=>e.cf&&e.cf.isCloudflare);
+let html='';
+html+='<div class="har-tiles">';
+html+='<div class="har-tile cf"><h5>CF Requests</h5><div class="big">'+(cf.totalCfRequests||0)+'</div><div class="sub">served via Cloudflare</div></div>';
+html+='<div class="har-tile '+((cf.mitigated||0)>0?'crit':'ok')+'"><h5>Mitigated</h5><div class="big">'+(cf.mitigated||0)+'</div><div class="sub">WAF / Bot / rate limit</div></div>';
+html+='<div class="har-tile '+((cf.accessChallenges||0)>0?'warn':'ok')+'"><h5>Access Challenges</h5><div class="big">'+(cf.accessChallenges||0)+'</div><div class="sub">re-auth redirects</div></div>';
+html+='</div>';
+if(cf.accessUser)html+='<div class="warp-card"><h4>Access Identity</h4>'+kv('Authenticated user',cf.accessUser)+'</div>';
+if(!entries.length){html+='<div class="warp-empty"><h4>No Cloudflare-served requests</h4><p>No cf-ray or cloudflare server headers were found in this capture.</p></div>';$('har-cloudflare').innerHTML=html;return}
+html+='<div class="scroll-y" style="flex:1"><table class="har-table"><thead><tr><th>Status</th><th>URL</th><th>cf-ray</th><th>cache</th><th>mitigated</th></tr></thead><tbody>';
+entries.slice(0,300).forEach(e=>{
+const st=e.response?.status||0;
+html+='<tr>';
+html+='<td class="har-status '+harClass(st)+'">'+esc(String(st||'FAIL'))+'</td>';
+html+='<td class="har-url" title="'+esc(e.request?.url||'')+'">'+esc(e.request?.url||'')+'</td>';
+html+='<td style="font-family:var(--mono);font-size:10px;color:var(--text3)">'+esc(e.cf?.ray||'')+'</td>';
+html+='<td>'+esc(e.cf?.cacheStatus||'')+'</td>';
+html+='<td>'+esc(e.cf?.mitigated||'')+'</td>';
+html+='</tr>';
+});
+html+='</tbody></table></div>';
+$('har-cloudflare').innerHTML=html;
+$('har-cloudflare').style.display='flex';$('har-cloudflare').style.flexDirection='column';
+}
+
 // ── Navigation ──────────────────────────────────────────────────────
 document.querySelectorAll('.tab-btn').forEach(btn=>{
 btn.onclick=()=>{
@@ -2445,7 +2784,8 @@ $('upload-screen').classList.add('active');
 $('btnBack').classList.add('hidden');
 exportSelect.classList.add('hidden');
 $('btnDebrief')&&$('btnDebrief').classList.add('hidden');
-state={packets:[],flows:{},stats:{},ai:null,sessionId:null,warpFiles:null,warp:null,selectedIdx:-1,filteredPackets:null,allPackets:[],sortBy:null,sortDir:'asc',timeFormat:'relative'};
+document.querySelector('[data-tab="har"]')&&document.querySelector('[data-tab="har"]').classList.add('hidden');
+state={packets:[],flows:{},stats:{},ai:null,sessionId:null,warpFiles:null,warp:null,har:null,selectedIdx:-1,filteredPackets:null,allPackets:[],sortBy:null,sortDir:'asc',timeFormat:'relative'};
 files=[];fileInput.value='';fileListEl.classList.add('hidden');analyzeBtn.disabled=true;
 progressEl.classList.remove('active');
 loadSessions();
@@ -2464,9 +2804,17 @@ toast('info','Logging out of Cloudflare Access\u2026');
 window.location.href='/cdn-cgi/access/logout?returnTo='+encodeURIComponent(window.location.origin+'/');
 });
 
-// ── WARP Diagnostic Debrief PDF (client-side, jsPDF) ──────────────────
+// ── Diagnostic Debrief PDF (client-side, jsPDF) ───────────────────────
+// Routes to the WARP or HAR debrief based on which dataset is active.
 $('btnDebrief')&&($('btnDebrief').onclick=()=>{
-try{generateDebriefPDF()}catch(e){console.error(e);toast('error','PDF export failed: '+e.message)}
+try{
+const harActive=$('tab-har')&&$('tab-har').classList.contains('active');
+const onlyHar=state.har&&!state.warp;
+if(state.har&&(harActive||onlyHar))generateHarDebriefPDF();
+else if(state.warp)generateDebriefPDF();
+else if(state.har)generateHarDebriefPDF();
+else toast('info','No diagnostic data to export');
+}catch(e){console.error(e);toast('error','PDF export failed: '+e.message)}
 });
 
 function generateDebriefPDF(){
@@ -2682,6 +3030,95 @@ doc.save(fname);
 toast('success','Exported: '+fname);
 }
 
+// ── HAR Analysis Debrief PDF (client-side, jsPDF) ─────────────────────
+function generateHarDebriefPDF(){
+const jsPDFCtor=(window.jspdf&&window.jspdf.jsPDF)||window.jsPDF;
+if(!jsPDFCtor){
+toast('error',window.__jspdfFailed?'PDF library failed to load \u2014 check your network/ad-blocker and retry':'PDF library still loading \u2014 try again in a moment');
+return}
+const har=state.har||{};
+const harAI=state.ai?.har?.analysis||state.ai?.har?.fallback||{};
+const perf=har.perf||{};const counts=perf.counts||{};const cls=perf.byStatusClass||{};const cf=har.cloudflare||{};
+
+const ORANGE=[243,128,32], DARK=[26,26,46], INK=[45,55,72], GREY=[107,114,128], LIGHT=[248,249,250], LINE=[224,224,224];
+const RED=[196,30,58], REDBG=[255,240,240];
+const doc=new jsPDFCtor({unit:'pt',format:'letter'});
+const PW=doc.internal.pageSize.getWidth(), PH=doc.internal.pageSize.getHeight();
+const M=54; const CW=PW-M*2; let y=M;
+
+// Primary host = the most-requested domain (best available "subject" of the capture).
+const topHost=(perf.domains&&perf.domains[0]&&perf.domains[0].host)||'HAR Capture';
+
+function sane(t){return String(t==null?'':t)
+  .replace(/\\u2192/g,'>').replace(/\\u2190/g,'<')
+  .replace(/[\\u2018\\u2019]/g,"'").replace(/[\\u201C\\u201D]/g,'"')
+  .replace(/\\u2022/g,'-').replace(/\\u2026/g,'...').replace(/\\u00a0/g,' ')
+  .replace(/[\\u2013\\u2014]/g,'\\u2014')
+  .replace(/[^\\x00-\\xFF\\u2014]/g,'')}
+function ensure(space){if(y+space>PH-M-24){footer();doc.addPage();y=M}}
+function footer(){doc.setFont('helvetica','normal');doc.setFontSize(8);doc.setTextColor(...GREY);doc.text('HAR Analysis Debrief \u2014 '+topHost,M,PH-28);doc.text(String(doc.internal.getCurrentPageInfo().pageNumber),PW-M,PH-28,{align:'right'})}
+function h(txt,color){ensure(30);doc.setFont('helvetica','bold');doc.setFontSize(11);doc.setTextColor(...(color||ORANGE));doc.text(sane(txt).toUpperCase(),M,y);y+=14}
+function para(txt,opts){opts=opts||{};const size=opts.size||10;const color=opts.color||INK;doc.setFont('helvetica',opts.bold?'bold':(opts.italic?'italic':'normal'));doc.setFontSize(size);doc.setTextColor(...color);const width=opts.width||CW;const x=opts.x||M;const lines=doc.splitTextToSize(sane(txt),width);for(const ln of lines){ensure(size+4);doc.text(ln,x,y);y+=size+4}return y}
+function gap(n){y+=(n||8)}
+
+// Header band
+doc.setFillColor(...DARK);doc.rect(0,0,PW,4,'F');
+doc.setFont('helvetica','bold');doc.setFontSize(9);doc.setTextColor(...ORANGE);doc.text('CLOUDFLARE',M,y+6);
+doc.text('HAR ANALYSIS DEBRIEF',PW-M,y+2,{align:'right'});
+doc.setFont('helvetica','bold');doc.setFontSize(20);doc.setTextColor(...DARK);doc.text(sane(topHost),PW-M,y+26,{align:'right'});
+doc.setFont('helvetica','normal');doc.setFontSize(9);doc.setTextColor(...GREY);
+doc.text('Prepared '+new Date().toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'}),PW-M,y+40,{align:'right'});
+y+=54;doc.setDrawColor(...ORANGE);doc.setLineWidth(2);doc.line(M,y,PW-M,y);y+=20;
+
+// Summary card
+const health=har.health||harAI?.health_status||'Unknown';
+const srows=[['Requests',String(counts.total||0),'Health',String(health)],['Failed / 5xx',String((counts.failed||0))+' / '+String(cls['5xx']||0),'Slow',String(counts.slow||0)],['Cloudflare reqs',String(cf.totalCfRequests||0),'Mitigated / Access',String(cf.mitigated||0)+' / '+String(cf.accessChallenges||0)]];
+const cardTop=y;const pad=12;const colL=M+pad, colLV=M+pad+108, colR=M+CW/2+6, colRV=M+CW/2+6+118;
+doc.setFillColor(...LIGHT);doc.setDrawColor(...LINE);doc.setLineWidth(1);doc.roundedRect(M,cardTop,CW,srows.length*18+34,6,6,'FD');
+let ry=cardTop+pad+8;doc.setFontSize(9.5);doc.setTextColor(...GREY);doc.setFont('helvetica','bold');doc.text('CAPTURE SUMMARY',colL,ry-2);ry+=16;
+for(const r of srows){
+doc.setFont('helvetica','bold');doc.setTextColor(...DARK);doc.setFontSize(9);doc.text(r[0],colL,ry);doc.text(r[2],colR,ry);
+doc.setFont('helvetica','normal');doc.setTextColor(...INK);doc.text(sane(r[1]),colLV,ry);doc.text(sane(r[3]),colRV,ry);
+ry+=18}
+y=cardTop+srows.length*18+34+18;
+
+// Bottom line
+const bl=harAI?.bottom_line||har.bottomLine||'';
+if(bl){h('Bottom Line');para(bl);gap(10)}
+
+// Findings
+const merged=[...(har.findings||[]),...(harAI?.issues||[])];
+const seen=new Set();const issues=[];for(const f of merged){const k=(f.title||'').toLowerCase();if(seen.has(k))continue;seen.add(k);issues.push(f)}
+const sevRank=f=>(f.blocking?0:1)+(f.severity==='Critical'?0:f.severity==='Warning'?1:2);
+issues.sort((a,b)=>sevRank(a)-sevRank(b));
+if(issues.length){
+h('Issues Found ('+issues.length+')');
+issues.forEach(f=>{
+const blocking=f.blocking||f.severity==='Critical';
+ensure(40);
+doc.setFillColor(...(blocking?REDBG:LIGHT));doc.setDrawColor(...(blocking?RED:LINE));doc.setLineWidth(1);
+const badge=blocking?'BLOCKING':f.severity==='Warning'?'WARNING':'INFO';
+para((f.title||'')+'  ['+badge+']',{bold:true,color:blocking?RED:DARK,size:10.5});
+if(f.what_experienced||f.description)para(f.what_experienced||f.description,{size:9.5,color:INK});
+if(f.remediation)para('Fix: '+f.remediation,{size:9.5,color:GREY,italic:true});
+gap(8);
+});
+}
+
+// Recommendations
+const recs=harAI?.recommendations||[];
+if(recs.length){h('Recommendations');recs.forEach((r,i)=>{para((i+1)+'. '+(typeof r==='string'?r:(r.title||r.body||'')),{size:9.5})});gap(6)}
+
+// Redaction note
+if(har.redactions){const rd=har.redactions;const tot=(rd.headers||0)+(rd.params||0)+(rd.cookies||0)+(rd.bodies||0);if(tot>0){h('Data Handling');para(tot+' sensitive value(s) were redacted before storage; no secrets are persisted.',{size:9,color:GREY,italic:true})}}
+
+footer();
+const safe=String(topHost).replace(/[\\\\/:*?"<>|]/g,'').replace(/\\s+/g,' ').trim()||'HAR Capture';
+const fname='HAR Analysis Results - '+safe+'.pdf';
+doc.save(fname);
+toast('success','Exported: '+fname);
+}
+
 // ── Export ───────────────────────────────────────────────────────────
 exportSelect.onchange=async()=>{
 const fmt=exportSelect.value;
@@ -2720,13 +3157,14 @@ el.onclick=()=>openSession(el.dataset.id);
 
 async function openSession(id){
 try{
-const [metaR,pktR,flowR,statR,aiR,warpR]=await Promise.all([
+const [metaR,pktR,flowR,statR,aiR,warpR,harR]=await Promise.all([
 fetch(API+'/api/sessions/'+id),
 fetch(API+'/api/sessions/'+id+'/packets?page=0'),
 fetch(API+'/api/sessions/'+id+'/flows'),
 fetch(API+'/api/sessions/'+id+'/stats'),
 fetch(API+'/api/sessions/'+id+'/ai'),
 fetch(API+'/api/sessions/'+id+'/warp'),
+fetch(API+'/api/sessions/'+id+'/har'),
 ]);
 const meta=await metaR.json();
 const pktData=await pktR.json();
@@ -2734,6 +3172,7 @@ const flowData=await flowR.json();
 const statData=await statR.json();
 const aiData=await aiR.json();
 const warpData=await warpR.json();
+const harData=await harR.json();
 const warpPayload=warpData.warp||{};
 
 loadResults({
@@ -2748,6 +3187,7 @@ warnings:meta.warnings||[]
 ai:aiData.ai,
 warpFiles:warpPayload.files||(meta.hasWarpDiagnostics?[]:undefined),
 warp:warpPayload.snapshot||null,
+har:harData.har||null,
 });
 }catch(e){toast('error','Failed to open session: '+e.message)}
 }

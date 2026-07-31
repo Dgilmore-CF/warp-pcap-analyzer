@@ -51,6 +51,7 @@ export async function createSession(kv, userEmail, sessionData, sessionId = null
 		totalFlows: Object.keys(sessionData.flows || {}).length,
 		hasAiAnalysis: false,
 		hasWarpDiagnostics: !!sessionData.warpFiles?.length,
+		hasHar: !!sessionData.harSnapshot,
 		warnings: sessionData.warnings || [],
 		status: 'processing',
 	};
@@ -107,6 +108,11 @@ export async function createSession(kv, userEmail, sessionData, sessionId = null
 			snapshot: sessionData.warpSnapshot || null,
 		};
 		writes.push(kv.put(`session:${sessionId}:warp`, JSON.stringify(warpPayload), { expirationTtl: SESSION_TTL }));
+	}
+
+	// HAR snapshot — already redacted by har-parser (no secrets persisted).
+	if (sessionData.harSnapshot) {
+		writes.push(kv.put(`session:${sessionId}:har`, JSON.stringify(sessionData.harSnapshot), { expirationTtl: SESSION_TTL }));
 	}
 
 	// Add to user's session list
@@ -208,22 +214,31 @@ export async function getSessionWarp(kv, sessionId) {
 }
 
 /**
+ * Get session HAR snapshot (redacted).
+ */
+export async function getSessionHar(kv, sessionId) {
+	const data = await kv.get(`session:${sessionId}:har`);
+	return data ? JSON.parse(data) : null;
+}
+
+/**
  * Get full session data (for export or small captures).
  */
 export async function getFullSession(kv, sessionId) {
-	const [meta, flows, stats, ai, warp] = await Promise.all([
+	const [meta, flows, stats, ai, warp, har] = await Promise.all([
 		getSessionMeta(kv, sessionId),
 		getSessionFlows(kv, sessionId),
 		getSessionStats(kv, sessionId),
 		getSessionAI(kv, sessionId),
 		getSessionWarp(kv, sessionId),
+		getSessionHar(kv, sessionId),
 	]);
 
 	if (!meta) return null;
 
 	const packets = await getAllSessionPackets(kv, sessionId);
 
-	return { meta, packets, flows, stats, ai, warp };
+	return { meta, packets, flows, stats, ai, warp, har };
 }
 
 /**
@@ -252,6 +267,7 @@ export async function deleteSession(kv, sessionId, userEmail) {
 		kv.delete(`session:${sessionId}:stats`),
 		kv.delete(`session:${sessionId}:ai`),
 		kv.delete(`session:${sessionId}:warp`),
+		kv.delete(`session:${sessionId}:har`),
 	];
 
 	// Delete packet chunks
@@ -317,6 +333,7 @@ async function deleteSessionData(kv, sessionId) {
 		kv.delete(`session:${sessionId}:stats`),
 		kv.delete(`session:${sessionId}:ai`),
 		kv.delete(`session:${sessionId}:warp`),
+		kv.delete(`session:${sessionId}:har`),
 	];
 	if (meta) {
 		const m = JSON.parse(meta);

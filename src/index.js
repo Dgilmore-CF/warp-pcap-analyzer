@@ -11,6 +11,7 @@
  *   GET  /api/sessions/:id/stats    → Protocol statistics
  *   GET  /api/sessions/:id/ai       → AI analysis results
  *   GET  /api/sessions/:id/warp     → WARP diagnostics data
+ *   GET  /api/sessions/:id/har      → HAR analysis snapshot (redacted)
  *   GET  /api/sessions/:id/export/:fmt → Export (json|csv|har|html)
  *   DELETE /api/sessions/:id        → Delete session
  *   OPTIONS *                       → CORS preflight
@@ -18,13 +19,15 @@
 
 import { extractZipFiles, parseTextFile, categorizeWarpFile, extractKeyInfo } from './parsers.js';
 import { decodePcapFile } from './pcap-decoder.js';
-import { analyzePcapWithAI, analyzeWarpDiagnostics } from './ai-analyzer.js';
+import { analyzePcapWithAI, analyzeWarpDiagnostics, analyzeHarWithAI } from './ai-analyzer.js';
 import { analyzeWarpBundle, findLogEvidence } from './warp-analyzer.js';
+import { analyzeHar } from './har-analyzer.js';
+import { looksLikeHar } from './har-parser.js';
 import { verifyAccessJWT } from './auth.js';
 import {
 	createSession, generateSessionId, getSessionMeta, getSessionPackets,
 	getAllSessionPackets, getSessionFlows, getSessionStats, getSessionAI,
-	getSessionWarp, getFullSession, listUserSessions, deleteSession,
+	getSessionWarp, getSessionHar, getFullSession, listUserSessions, deleteSession,
 	updateSessionAI, isSessionOwner, PACKETS_PER_CHUNK,
 } from './session.js';
 import { exportSession } from './export.js';
@@ -53,6 +56,17 @@ function err(message, status = 400) {
 function isPcapFile(name) {
 	const l = name.toLowerCase();
 	return l.endsWith('.pcap') || l.endsWith('.pcapng');
+}
+
+// Cheap content sniff for a .json upload that might actually be a HAR.
+function harSniff(arrayBuffer) {
+	try {
+		// Only decode the first ~8KB for the marker check to stay fast on big files.
+		const head = new TextDecoder('utf-8').decode(new Uint8Array(arrayBuffer).subarray(0, 8192));
+		return /"log"\s*:/.test(head) && /"entries"\s*:/.test(head);
+	} catch {
+		return false;
+	}
 }
 
 // ── Router ─────────────────────────────────────────────────────────────────────
@@ -100,6 +114,7 @@ async function handleRequest(request, env, ctx) {
 					stats: 'GET /api/sessions/:id/stats',
 					ai: 'GET /api/sessions/:id/ai',
 					warp: 'GET /api/sessions/:id/warp',
+					har: 'GET /api/sessions/:id/har',
 					export: 'GET /api/sessions/:id/export/:format',
 					delete: 'DELETE /api/sessions/:id',
 				},
@@ -178,6 +193,10 @@ async function handleRequest(request, env, ctx) {
 							const warp = await getSessionWarp(env.SESSIONS, sessionId);
 							return json({ warp });
 						}
+						case 'har': {
+							const har = await getSessionHar(env.SESSIONS, sessionId);
+							return json({ har });
+						}
 						default: {
 							// Export routes: export/json, export/csv, etc.
 							const exportMatch = sub.match(/^export\/(\w+)$/);
@@ -246,11 +265,26 @@ async function handleAnalyze(request, env, ctx, userEmail) {
 		// ── Process files ──────────────────────────────────────────────────────
 		const allLogFiles = [];
 		const allPcapDecoded = [];
+		let harSnapshot = null;
 		let primaryFileName = files[0].name;
 		let primaryFileSize = files[0].data.byteLength;
 		let fileType = 'unknown';
 
 		for (const file of files) {
+			const lowerName = file.name.toLowerCase();
+			// ── HAR (HTTP Archive) — standalone .har or JSON that sniffs as HAR ──
+			if (lowerName.endsWith('.har') || ((lowerName.endsWith('.json') || file.type === 'application/json') && harSniff(file.data))) {
+				try {
+					const text = parseTextFile(new Uint8Array(file.data));
+					harSnapshot = analyzeHar(text);
+					fileType = 'har';
+					console.log(`[analyze] HAR analyzed: health=${harSnapshot.health}, ${harSnapshot.entries.length} entries, ${harSnapshot.findings.length} findings`);
+				} catch (e) {
+					console.warn(`[analyze] HAR parse failed for ${file.name}: ${e.message}`);
+					return err(`Could not parse HAR file "${file.name}": ${e.message}`);
+				}
+				continue;
+			}
 			if (file.name.endsWith('.zip') || file.type === 'application/zip') {
 				fileType = 'warp-diag';
 				console.log('[analyze] Extracting ZIP...');
@@ -312,7 +346,7 @@ async function handleAnalyze(request, env, ctx, userEmail) {
 
 		console.log(`[analyze] Processing complete: ${allLogFiles.length} logs, ${allPcapDecoded.length} PCAPs`);
 
-		if (allLogFiles.length === 0 && allPcapDecoded.length === 0) {
+		if (allLogFiles.length === 0 && allPcapDecoded.length === 0 && !harSnapshot) {
 			return err('No valid files found in upload');
 		}
 
@@ -359,7 +393,7 @@ async function handleAnalyze(request, env, ctx, userEmail) {
 
 		// ── Run AI analysis ────────────────────────────────────────────────────
 		console.log('[analyze] Starting AI analysis...');
-		const aiResult = await runAIAnalysis(env.AI, pcapResult, allLogFiles, warpSnapshot);
+		const aiResult = await runAIAnalysis(env.AI, pcapResult, allLogFiles, warpSnapshot, harSnapshot);
 		console.log('[analyze] AI complete, success:', aiResult.success);
 
 		// ── Create session in background (don't block response) ────────────────
@@ -378,6 +412,7 @@ async function handleAnalyze(request, env, ctx, userEmail) {
 					warnings: pcapResult?.warnings || [],
 					warpFiles: allLogFiles,
 					warpSnapshot,
+					harSnapshot,
 				}, sessionId).then(async () => {
 					try {
 						await updateSessionAI(env.SESSIONS, sessionId, aiResult);
@@ -443,6 +478,9 @@ async function handleAnalyze(request, env, ctx, userEmail) {
 			if (warpSnapshot) response.warp = warpSnapshot;
 		}
 
+		// Include HAR snapshot (already redacted) for the UI
+		if (harSnapshot) response.har = harSnapshot;
+
 		console.log('[analyze] Sending response, sessionId:', sessionId);
 		return json(response);
 
@@ -454,7 +492,7 @@ async function handleAnalyze(request, env, ctx, userEmail) {
 
 // ── AI dispatch ────────────────────────────────────────────────────────────────
 
-async function runAIAnalysis(ai, pcapResult, logFiles, warpSnapshot) {
+async function runAIAnalysis(ai, pcapResult, logFiles, warpSnapshot, harSnapshot) {
 	const results = {};
 
 	try {
@@ -482,15 +520,24 @@ async function runAIAnalysis(ai, pcapResult, logFiles, warpSnapshot) {
 			);
 		}
 
+		if (harSnapshot) {
+			promises.push(
+				analyzeHarWithAI(ai, harSnapshot)
+					.then(r => { results.har = r; })
+					.catch(e => { results.har = { success: false, error: e.message }; })
+			);
+		}
+
 		await Promise.all(promises);
 
 		const pcapAnalysis = results.pcap?.analysis || results.pcap?.fallback;
 		const warpAnalysis = results.warp?.analysis || results.warp?.fallback;
+		const harAnalysis = results.har?.analysis || results.har?.fallback;
 
 		results.combined = {
-			health_status: determineOverallHealth(pcapAnalysis, warpAnalysis),
-			summary: buildCombinedSummary(pcapAnalysis, warpAnalysis),
-			models_used: [results.pcap?.model, results.warp?.model].filter(Boolean),
+			health_status: determineOverallHealth(pcapAnalysis, warpAnalysis, harAnalysis),
+			summary: buildCombinedSummary(pcapAnalysis, warpAnalysis, harAnalysis),
+			models_used: [results.pcap?.model, results.warp?.model, results.har?.model].filter(Boolean),
 		};
 
 		results.success = true;
@@ -503,17 +550,18 @@ async function runAIAnalysis(ai, pcapResult, logFiles, warpSnapshot) {
 	return results;
 }
 
-function determineOverallHealth(pcap, warp) {
-	const statuses = [pcap?.health_status, warp?.health_status].filter(Boolean);
+function determineOverallHealth(pcap, warp, har) {
+	const statuses = [pcap?.health_status, warp?.health_status, har?.health_status].filter(Boolean);
 	if (statuses.includes('Critical')) return 'Critical';
 	if (statuses.includes('Degraded')) return 'Degraded';
 	if (statuses.length > 0) return statuses[0];
 	return 'Unknown';
 }
 
-function buildCombinedSummary(pcap, warp) {
+function buildCombinedSummary(pcap, warp, har) {
 	const parts = [];
 	if (pcap?.summary) parts.push(`PCAP: ${pcap.summary}`);
 	if (warp?.summary) parts.push(`WARP: ${warp.summary}`);
+	if (har?.summary) parts.push(`HAR: ${har.summary}`);
 	return parts.join(' | ') || 'Analysis complete';
 }
