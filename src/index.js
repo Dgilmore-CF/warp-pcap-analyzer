@@ -1,5 +1,5 @@
 /**
- * WARP & PCAP Analyzer v2 — Cloudflare Worker
+ * WARP, PCAP & HAR Analyzer v2 — Cloudflare Worker
  *
  * Routes:
  *   GET  /                          → UI (HTML) or API info (JSON)
@@ -100,7 +100,7 @@ async function handleRequest(request, env, ctx) {
 				});
 			}
 			return json({
-				name: 'WARP & PCAP Analyzer',
+				name: 'WARP, PCAP & HAR Analyzer',
 				version: '2.0.0',
 				description: 'Professional network capture analysis with Wireshark-style UI and AI-powered diagnostics',
 				models: ['Llama 4 Scout 17B', 'Llama 3.3 70B Fast', 'DeepSeek R1 32B'],

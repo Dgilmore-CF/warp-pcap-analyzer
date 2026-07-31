@@ -11,7 +11,7 @@ describe('WARP & PCAP Analyzer v2', () => {
 
 		expect(response.status).toBe(200);
 		const data = await response.json();
-		expect(data.name).toBe('WARP & PCAP Analyzer');
+		expect(data.name).toBe('WARP, PCAP & HAR Analyzer');
 		expect(data.version).toBe('2.0.0');
 		expect(data.endpoints).toBeDefined();
 		expect(data.endpoints.analyze).toContain('POST');
@@ -30,7 +30,7 @@ describe('WARP & PCAP Analyzer v2', () => {
 		expect(response.headers.get('Content-Type')).toContain('text/html');
 		const html = await response.text();
 		expect(html).toContain('WARP');
-		expect(html).toContain('PCAP Analyzer');
+		expect(html).toContain('PCAP & HAR Analyzer');
 	});
 
 	it('OPTIONS returns CORS headers', async () => {

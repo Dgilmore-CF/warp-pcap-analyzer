@@ -1,5 +1,5 @@
 /**
- * WARP & PCAP Analyzer v2 — Wrangler Configuration
+ * WARP, PCAP & HAR Analyzer v2 — Wrangler Configuration
  * https://developers.cloudflare.com/workers/wrangler/configuration/
  *
  * SECURITY NOTE — What's in this file:

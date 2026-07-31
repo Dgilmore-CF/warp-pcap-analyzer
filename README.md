@@ -1,4 +1,4 @@
-# WARP & PCAP Analyzer v2
+# WARP, PCAP & HAR Analyzer v2
 
 Professional network capture analysis with a Wireshark-style interface, multi-model AI diagnostics, and Cloudflare Access SSO — deployed as a single Cloudflare Worker.
 

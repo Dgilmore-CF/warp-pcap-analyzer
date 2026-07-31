@@ -1,5 +1,5 @@
 /**
- * Professional Wireshark-style UI for WARP & PCAP Analyzer v2
+ * Professional Wireshark-style UI for WARP, PCAP & HAR Analyzer v2
  * Dark theme, three-pane packet browser, protocol tree, hex dump,
  * statistics dashboard, AI analysis, and WARP diagnostics views.
  */
@@ -9,7 +9,7 @@ export const UI_HTML = `<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>WARP & PCAP Analyzer</title>
+<title>WARP, PCAP & HAR Analyzer</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" integrity="sha384-JcnsjUPPylna1s1fvi1u12X5qjY5OL56iySh75FdtrwhO/SWXgMjoVqcKyIIWOLk" crossorigin="anonymous" referrerpolicy="no-referrer" defer onerror="window.__jspdfFailed=true;var s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js';s.onload=function(){window.__jspdfFailed=false};document.head.appendChild(s)"></script>
 <style>
 /* ── Reset & Base ─────────────────────────────────────────────────────── */
@@ -540,7 +540,7 @@ kbd{font-family:var(--mono);background:var(--bg3);border:1px solid var(--border)
 <div id="app">
 <!-- Header -->
 <div class="header">
-<h1><span>WARP</span> & PCAP Analyzer</h1>
+<h1><span>WARP</span>, PCAP & HAR Analyzer</h1>
 <span class="badge badge-info" id="versionBadge">v2.0</span>
 <div class="header-actions">
 <button class="btn btn-ghost btn-sm" id="btnTheme" title="Toggle light/dark theme">
@@ -564,15 +564,15 @@ kbd{font-family:var(--mono);background:var(--bg3);border:1px solid var(--border)
 <div class="screen active" id="upload-screen">
 <div class="upload-card">
 <h2>Network Capture Analyzer</h2>
-<p>Upload WARP diagnostic bundles or PCAP files for AI-powered analysis</p>
+<p>Upload WARP diagnostic bundles, PCAP captures, or HAR files for AI-powered analysis</p>
 <div class="drop-zone" id="dropZone">
 <div class="drop-zone-icon">&#x1F4C1;</div>
 <div class="drop-zone-text">
 <strong>Drop files here</strong> or click to browse<br>
-Supports: .zip (warp-diag) &middot; .pcap &middot; .pcapng &middot; .log &middot; .txt &middot; .json
+Supports: .zip (warp-diag) &middot; .pcap &middot; .pcapng &middot; .har &middot; .log &middot; .txt &middot; .json
 </div>
 </div>
-<input type="file" id="fileInput" multiple accept=".zip,.pcap,.pcapng,.log,.txt,.json,.xml,.plist" class="hidden">
+<input type="file" id="fileInput" multiple accept=".zip,.pcap,.pcapng,.har,.log,.txt,.json,.xml,.plist" class="hidden">
 <div class="file-list hidden" id="fileList"></div>
 <button class="upload-btn" id="analyzeBtn" disabled>Analyze Files</button>
 <div class="upload-progress" id="uploadProgress">
